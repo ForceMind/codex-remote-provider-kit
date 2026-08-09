@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+is_chatgpt_logged_in() {
+  local codex_bin=${1:?Codex executable required}
+  local login_status
+
+  login_status=$("$codex_bin" login status 2>/dev/null) || return 1
+  [[ "$login_status" == *'Logged in using ChatGPT'* ]]
+}
+
 write_command_launcher() {
   local target_file=${1:?target file required}
   local setup_script=${2:?setup script required}

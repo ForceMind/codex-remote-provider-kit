@@ -28,6 +28,9 @@ jobs:
       - name: Test global command launcher
         shell: bash
         run: bash tests/test-command-launcher.sh
+      - name: Test ChatGPT login status detection
+        shell: bash
+        run: bash tests/test-login-status.sh
       - name: Reject likely committed credentials
         shell: bash
         run: |
