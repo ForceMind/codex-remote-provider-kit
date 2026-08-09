@@ -43,6 +43,8 @@ sudo ./setup.sh
 
 `setup.sh` 会安全地提示输入第三方 API 密钥，然后自动安装、启动服务，并完成
 模型目录、Responses 流式接口和真实 Codex 回合三层检查。密钥输入不会回显。
+安装器还会把用户级默认 `model_provider` 设置为第三方；托管 Remote daemon 在
+创建新会话时会读取这个值。
 
 已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖备份或配置，只会重新启动
 第三方 Remote 并执行完整检查。
@@ -82,6 +84,9 @@ sudo ./status.sh --full
 
 最后在手机上**新建会话**，发送 `Reply exactly OK`。不要让本地 Codex 与手机
 同时打开同一个会话；会话存储只允许一个活跃写入者。
+
+新会话的服务器端 `session_meta.model_provider` 应为 `inno_flare`。让模型自己
+回答 provider 不能作为验证依据；应使用服务器元数据或 `status.sh --full`。
 
 ## 回退与恢复
 
