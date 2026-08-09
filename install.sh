@@ -79,8 +79,14 @@ secret_file="$secret_dir/provider.env"
 state_dir='/var/lib/codex-remote-provider'
 state_file="$state_dir/state.env"
 unit_file='/etc/systemd/system/codex-remote-provider.service'
+command_file='/usr/local/bin/codex-rp'
+command_marker='# Managed by codex-remote-provider-kit'
 begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
 end_marker="# END codex-remote-provider-kit:$provider_id"
+
+if [[ -e "$command_file" ]] && ! grep -Fxq "$command_marker" "$command_file"; then
+  die "$command_file already exists and is not managed by this kit"
+fi
 
 install -d -m 700 "$codex_home" "$backup_dir" "$secret_dir" "$state_dir"
 [[ -f "$config_file" ]] && cp -p "$config_file" "$backup_dir/config.toml"
@@ -96,7 +102,8 @@ tmp_config=$(mktemp)
 tmp_profile=$(mktemp)
 tmp_secret=$(mktemp)
 tmp_unit=$(mktemp)
-cleanup() { rm -f "$tmp_config" "$tmp_profile" "$tmp_secret" "$tmp_unit"; }
+tmp_command=$(mktemp)
+cleanup() { rm -f "$tmp_config" "$tmp_profile" "$tmp_secret" "$tmp_unit" "$tmp_command"; }
 trap cleanup EXIT
 
 if [[ -f "$config_file" ]]; then
@@ -155,6 +162,8 @@ Restart=no
 WantedBy=multi-user.target
 EOF
 
+write_command_launcher "$tmp_command" "$script_dir/setup.sh"
+
 python3 - "$tmp_config" "$tmp_profile" <<'PY'
 import sys, tomllib
 for path in sys.argv[1:]:
@@ -167,6 +176,7 @@ install -m 600 "$tmp_config" "$config_file"
 install -m 600 "$tmp_profile" "$profile_file"
 install -m 600 "$tmp_secret" "$secret_file"
 install -m 644 "$tmp_unit" "$unit_file"
+install -m 755 "$tmp_command" "$command_file"
 
 {
   printf 'PROVIDER_ID=%q\n' "$provider_id"
@@ -176,6 +186,7 @@ install -m 644 "$tmp_unit" "$unit_file"
   printf 'REASONING=%q\n' "$reasoning"
   printf 'CODEX_HOME_DIR=%q\n' "$codex_home"
   printf 'CODEX_BIN_PATH=%q\n' "$codex_bin"
+  printf 'COMMAND_FILE=%q\n' "$command_file"
   printf 'BACKUP_DIR=%q\n' "$backup_dir"
   printf 'LEGACY_ENABLED=%q\n' "$legacy_enabled"
   printf 'LEGACY_ACTIVE=%q\n' "$legacy_active"
@@ -190,4 +201,6 @@ systemctl enable --now codex-remote-provider.service
 
 printf 'Installed provider %s with model %s.\n' "$provider_id" "$model"
 printf 'Backup: %s\n' "$backup_dir"
+printf 'Background service is enabled for boot.\n'
+printf 'Open the panel from any directory: codex-rp\n'
 printf 'Run: sudo %s/status.sh --full\n' "$script_dir"

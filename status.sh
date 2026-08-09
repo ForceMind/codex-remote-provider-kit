@@ -17,6 +17,8 @@ set +a
 printf '[service]\n'
 systemctl show codex-remote-provider.service \
   -p ActiveState -p SubState -p Result -p UnitFileState --no-pager
+[[ $(systemctl is-enabled codex-remote-provider.service) == enabled ]]
+[[ $(systemctl is-active codex-remote-provider.service) == active ]]
 
 printf '[codex]\n'
 "$CODEX_BIN_PATH" --version
