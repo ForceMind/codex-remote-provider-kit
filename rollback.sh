@@ -31,7 +31,9 @@ else
   ' "$CODEX_HOME_DIR/config.toml" > "$tmp_config"
   install -m 600 "$tmp_config" "$CODEX_HOME_DIR/config.toml"
   rm -f "$tmp_config"
-  remove_default_provider "$CODEX_HOME_DIR/config.toml"
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model_provider
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model_reasoning_effort
 fi
 
 if [[ -f "$BACKUP_DIR/profile.config.toml" ]]; then

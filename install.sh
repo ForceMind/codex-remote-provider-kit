@@ -113,7 +113,7 @@ fi
 
 # The managed Remote daemon is a separate process. It reads the user-level
 # default provider and does not reliably inherit transient bootstrap flags.
-set_default_provider "$tmp_config" "$provider_id"
+set_remote_defaults "$tmp_config" "$provider_id" "$model" "$reasoning"
 
 cat >> "$tmp_config" <<EOF
 

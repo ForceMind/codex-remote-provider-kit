@@ -12,6 +12,8 @@ read -r confirmation
 [[ "$confirmation" == 'USE_OFFICIAL' ]] || { printf 'cancelled\n'; exit 1; }
 
 set_default_provider /root/.codex/config.toml openai
+remove_top_level_key /root/.codex/config.toml model
+remove_top_level_key /root/.codex/config.toml model_reasoning_effort
 systemctl stop codex.service >/dev/null 2>&1 || true
 /root/.local/bin/codex remote-control stop --json >/dev/null 2>&1 || true
 install -d -m 755 "$(dirname "$target")"

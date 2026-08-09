@@ -11,7 +11,7 @@ state_file='/var/lib/codex-remote-provider/state.env'
 # shellcheck disable=SC1090
 source "$state_file"
 
-set_default_provider "$CODEX_HOME_DIR/config.toml" "$PROVIDER_ID"
+set_remote_defaults "$CODEX_HOME_DIR/config.toml" "$PROVIDER_ID" "$MODEL" "$REASONING"
 "$CODEX_BIN_PATH" remote-control stop --json >/dev/null 2>&1 || true
 systemctl restart codex-remote-provider.service
 systemctl show codex-remote-provider.service -p ActiveState -p SubState -p Result --no-pager

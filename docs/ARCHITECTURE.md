@@ -37,8 +37,9 @@ Provider 配置必须写到用户级 `$CODEX_HOME/config.toml`。项目级 `.cod
 一个 profile 文件，便于使用 `codex exec --profile <provider-id>` 独立验证。
 
 Remote 的托管 app-server 是独立后台进程。安装器会同时设置用户级顶层
-`model_provider`，因为启动命令上的临时覆盖不一定被托管 daemon 继承。人工切换
-脚本会先更新这个默认值，再停止并重新启动 daemon。
+`model_provider`、`model` 和 `model_reasoning_effort`，因为启动命令上的临时覆盖
+不一定被托管 daemon 继承。人工切回官方时从安装前备份恢复这三项（原来不存在
+的项会被移除），再停止并重新启动 daemon，避免把第三方模型名带到官方 provider。
 
 ## systemd 设计
 

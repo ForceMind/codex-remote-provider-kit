@@ -30,6 +30,18 @@ ChatGPT 登录与连接通道。
 如果密钥曾经发到聊天、日志、终端截图或工单中，应立即在供应商后台吊销并
 生成新密钥。私有仓库也不能替代密钥轮换。
 
+## 一键命令面板
+
+克隆仓库后直接运行：
+
+```bash
+./panel.sh
+```
+
+面板统一提供安装、状态检查、完整测试、第三方/官方切换和回滚。首次安装可以
+填写第三方 Base URL、模型、Provider ID 和推理强度，直接回车使用默认值。需要
+系统权限时脚本会自动通过 `sudo` 重新执行，不需要手工拼接命令。
+
 ## 新服务器一键安装并运行
 
 前提：Linux/systemd、Bash、curl、Python 3，以及支持
@@ -38,13 +50,13 @@ ChatGPT 登录与连接通道。
 ```bash
 gh repo clone ForceMind/codex-remote-provider-kit
 cd codex-remote-provider-kit
-sudo ./setup.sh
+sudo ./setup.sh install
 ```
 
-`setup.sh` 会安全地提示输入第三方 API 密钥，然后自动安装、启动服务，并完成
+`setup.sh install` 会安全地提示输入第三方 API 密钥，然后自动安装、启动服务，并完成
 模型目录、Responses 流式接口和真实 Codex 回合三层检查。密钥输入不会回显。
-安装器还会把用户级默认 `model_provider` 设置为第三方；托管 Remote daemon 在
-创建新会话时会读取这个值。
+安装器还会把用户级默认 `model_provider`、`model` 和推理强度作为一组设置为
+第三方配置；托管 Remote daemon 在创建新会话时会读取这些值。
 
 已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖备份或配置，只会重新启动
 第三方 Remote 并执行完整检查。
@@ -85,8 +97,9 @@ sudo ./status.sh --full
 最后在手机上**新建会话**，发送 `Reply exactly OK`。不要让本地 Codex 与手机
 同时打开同一个会话；会话存储只允许一个活跃写入者。
 
-新会话的服务器端 `session_meta.model_provider` 应为 `inno_flare`。让模型自己
-回答 provider 不能作为验证依据；应使用服务器元数据或 `status.sh --full`。
+新会话的服务器端 `session_meta.model_provider` 应为 `inno_flare`，模型也应与
+安装参数一致。让模型自己回答 provider 不能作为验证依据；应使用服务器元数据
+或 `status.sh --full`。
 
 ## 回退与恢复
 

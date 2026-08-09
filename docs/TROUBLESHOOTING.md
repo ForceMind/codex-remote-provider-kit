@@ -27,8 +27,9 @@ Remote 的 `start` 命令会引导一个独立的托管 app-server daemon。只�
 model_provider = "inno_flare"
 ```
 
-然后完整停止并重新启动 Remote，再创建新会话。`status.sh` 会把顶层默认 provider
-纳入检查。切换脚本也会先更新这个默认值，再重启 daemon。
+同时确认顶层 `model` 和 `model_reasoning_effort` 与安装参数一致，然后完整停止并
+重新启动 Remote，再创建新会话。`status.sh` 会检查这三个默认值。切换脚本也会
+先更新整组默认值，再重启 daemon。
 
 ## `/v1/models` 成功，但 `/v1/responses` 报 Input must be a list
 

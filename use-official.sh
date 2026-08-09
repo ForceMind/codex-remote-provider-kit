@@ -16,7 +16,7 @@ printf 'Official quota may be consumed. Type USE_OFFICIAL to continue: '
 read -r confirmation
 [[ "$confirmation" == 'USE_OFFICIAL' ]] || { printf 'cancelled\n'; exit 1; }
 
-set_default_provider "$CODEX_HOME_DIR/config.toml" openai
+restore_remote_defaults "$CODEX_HOME_DIR/config.toml" "$BACKUP_DIR/config.toml"
 systemctl stop codex-remote-provider.service || true
 "$CODEX_BIN_PATH" remote-control stop --json >/dev/null 2>&1 || true
 "$CODEX_BIN_PATH" remote-control start --json
