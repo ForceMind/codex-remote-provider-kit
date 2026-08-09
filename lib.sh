@@ -9,6 +9,15 @@ is_chatgpt_logged_in() {
   [[ "$login_status" == *'Logged in using ChatGPT'* ]]
 }
 
+is_supported_api_key() {
+  local api_key=${1-}
+
+  [[ -n "$api_key" ]] || return 1
+  [[ "$api_key" != *$'\n'* && "$api_key" != *$'\r'* ]] || return 1
+  # Accept common opaque, URL-safe, and padded Base64 token formats.
+  [[ "$api_key" =~ ^[A-Za-z0-9._~+/=-]+$ ]]
+}
+
 write_command_launcher() {
   local target_file=${1:?target file required}
   local setup_script=${2:?setup script required}

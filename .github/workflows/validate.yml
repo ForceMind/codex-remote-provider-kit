@@ -31,6 +31,9 @@ jobs:
       - name: Test ChatGPT login status detection
         shell: bash
         run: bash tests/test-login-status.sh
+      - name: Test API key validation
+        shell: bash
+        run: bash tests/test-api-key-validation.sh
       - name: Reject likely committed credentials
         shell: bash
         run: |
