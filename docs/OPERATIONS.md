@@ -2,6 +2,29 @@
 
 以下命令默认在本仓库目录执行，并需要 root 权限。
 
+## 一键安装和统一入口
+
+新服务器克隆仓库后执行：
+
+```bash
+sudo ./setup.sh
+```
+
+脚本会提示输入密钥，随后安装、启动并执行完整验证。日常管理也可以全部通过
+同一入口完成：
+
+```bash
+sudo ./setup.sh status
+sudo ./setup.sh test
+sudo ./setup.sh official
+sudo ./setup.sh third-party
+sudo ./setup.sh rollback
+```
+
+第一次安装需要终端交互，不能在无人值守任务中把密钥直接写进命令行。若要
+自动化部署，应由服务器的秘密管理系统预先注入 `INNO_FLARE_API_KEY` 环境变量，
+再运行 `sudo -E ./setup.sh`，并确保 CI 日志不会打印环境内容。
+
 ## 每次变更后的标准检查
 
 ```bash

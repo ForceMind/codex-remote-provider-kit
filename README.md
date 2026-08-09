@@ -10,6 +10,7 @@ ChatGPT 登录与连接通道。
 ## 仓库内容
 
 - `install.sh`：安装第三方 provider、专用 systemd 服务和安全的密钥文件。
+- `setup.sh`：一键安装、启动、完整验证，以及统一管理入口。
 - `status.sh`：分层检查服务、配置、模型接口和真实 Codex 调用。
 - `use-official.sh`：人工切回默认/官方推理，可能消耗官方额度。
 - `use-third-party.sh`：人工切回第三方推理。
@@ -29,23 +30,27 @@ ChatGPT 登录与连接通道。
 如果密钥曾经发到聊天、日志、终端截图或工单中，应立即在供应商后台吊销并
 生成新密钥。私有仓库也不能替代密钥轮换。
 
-## 新服务器安装
+## 新服务器一键安装并运行
 
 前提：Linux/systemd、Bash、curl、Python 3，以及支持
 `codex remote-control start` 的 Codex CLI。先在目标服务器完成 ChatGPT 登录。
 
 ```bash
-git clone git@github.com:ForceMind/codex-remote-provider-kit.git
+gh repo clone ForceMind/codex-remote-provider-kit
 cd codex-remote-provider-kit
-read -rsp 'Provider API key: ' INNO_FLARE_API_KEY
-echo
-export INNO_FLARE_API_KEY
-sudo -E ./install.sh \
-  --base-url https://ai.inno-flare.com/v1 \
-  --model gpt-5.6-sol \
-  --provider-id inno_flare \
-  --codex-home /root/.codex
-unset INNO_FLARE_API_KEY
+sudo ./setup.sh
+```
+
+`setup.sh` 会安全地提示输入第三方 API 密钥，然后自动安装、启动服务，并完成
+模型目录、Responses 流式接口和真实 Codex 回合三层检查。密钥输入不会回显。
+
+已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖备份或配置，只会重新启动
+第三方 Remote 并执行完整检查。
+
+如需覆盖默认参数：
+
+```bash
+sudo ./setup.sh install --model gpt-5.5 --reasoning medium
 ```
 
 安装器会备份重叠配置、校验 TOML、保存原服务状态，并启动独立的
@@ -53,7 +58,17 @@ unset INNO_FLARE_API_KEY
 
 ## 验证
 
-先做不产生模型回复的基础检查：
+统一管理入口：
+
+```bash
+sudo ./setup.sh status       # 基础检查，不生成模型回复
+sudo ./setup.sh test         # 完整真实调用检查
+sudo ./setup.sh official     # 人工切回官方推理
+sudo ./setup.sh third-party  # 切回第三方推理
+sudo ./setup.sh rollback     # 完整回滚
+```
+
+也可以直接调用底层脚本。先做不产生模型回复的基础检查：
 
 ```bash
 sudo ./status.sh
