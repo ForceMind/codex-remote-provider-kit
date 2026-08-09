@@ -13,6 +13,22 @@ write_command_launcher() {
   chmod 755 "$target_file"
 }
 
+install_global_command() {
+  local setup_script=${1:?setup script required}
+  local command_file=${2:-/usr/local/bin/codex-rp}
+  local marker='# Managed by codex-remote-provider-kit'
+  local temp_file
+
+  if [[ -e "$command_file" ]] && ! grep -Fxq "$marker" "$command_file"; then
+    printf 'error: %s already exists and is not managed by this kit\n' "$command_file" >&2
+    return 1
+  fi
+  temp_file=$(mktemp)
+  write_command_launcher "$temp_file" "$setup_script"
+  install -m 755 "$temp_file" "$command_file"
+  rm -f "$temp_file"
+}
+
 set_top_level_string() {
   local config_file=${1:?config file required}
   local key=${2:?key required}
