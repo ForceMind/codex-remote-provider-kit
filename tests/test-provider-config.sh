@@ -17,18 +17,18 @@ printf '%s\n' \
   'model = "test-model"' \
   'model_provider = "openai"' \
   '' \
-  '[model_providers.inno_flare]' \
+  '[model_providers.third_party]' \
   'base_url = "https://example.invalid/v1"' \
   'env_key = "TEST_PROVIDER_KEY"' \
   'wire_api = "responses"' > "$config_file"
 
-set_default_provider "$config_file" inno_flare
+set_default_provider "$config_file" third_party
 python3 - "$config_file" <<'PY'
 import sys, tomllib
 with open(sys.argv[1], "rb") as handle:
     config = tomllib.load(handle)
-assert config["model_provider"] == "inno_flare"
-assert config["model_providers"]["inno_flare"]["wire_api"] == "responses"
+assert config["model_provider"] == "third_party"
+assert config["model_providers"]["third_party"]["wire_api"] == "responses"
 PY
 
 set_default_provider "$config_file" openai
@@ -51,7 +51,7 @@ backup_file="$test_dir/backup.toml"
 printf '%s\n' \
   'model = "official-model"' \
   'model_reasoning_effort = "medium"' > "$backup_file"
-set_remote_defaults "$config_file" inno_flare third-party-model high
+set_remote_defaults "$config_file" third_party third-party-model high
 restore_remote_defaults "$config_file" "$backup_file"
 python3 - "$config_file" <<'PY'
 import sys, tomllib

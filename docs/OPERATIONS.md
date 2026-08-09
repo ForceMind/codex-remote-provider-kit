@@ -10,6 +10,18 @@
 ./panel.sh
 ```
 
+菜单第 1 项是从零部署入口：会安装缺少的系统依赖，并调用 OpenAI 官方独立
+安装器准备 Codex，引导 ChatGPT 设备登录，然后继续安装第三方 Remote。仅准备
+Codex 时可运行：
+
+```bash
+sudo ./setup.sh codex
+```
+
+自动依赖安装支持 Debian/Ubuntu 的 `apt-get`，以及使用 `dnf` 或 `yum` 的
+RHEL 系发行版。其他发行版需要先手工安装 `curl` 和 Python 3，
+然后重新运行面板。
+
 也可以跳过面板直接一键安装：
 
 ```bash
@@ -37,7 +49,7 @@ sudo ./setup.sh rollback
 ```
 
 第一次安装需要终端交互，不能在无人值守任务中把密钥直接写进命令行。若要
-自动化部署，应由服务器的秘密管理系统预先注入 `INNO_FLARE_API_KEY` 环境变量，
+自动化部署，应由服务器的秘密管理系统预先注入 `THIRD_PARTY_API_KEY` 环境变量，
 再运行 `sudo -E ./setup.sh`，并确保 CI 日志不会打印环境内容。
 
 ## 每次变更后的标准检查

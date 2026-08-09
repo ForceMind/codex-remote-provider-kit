@@ -34,11 +34,14 @@ jobs:
       - name: Test API key validation
         shell: bash
         run: bash tests/test-api-key-validation.sh
+      - name: Test online installer
+        shell: bash
+        run: bash tests/test-online-installer.sh
       - name: Reject likely committed credentials
         shell: bash
         run: |
           set -euo pipefail
-          pattern='(sk-[A-Za-z0-9_-]{20,}|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}|INNO_FLARE_API_KEY=[A-Za-z0-9._~+/-]{20,})'
+          pattern='(sk-[A-Za-z0-9_-]{20,}|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}|THIRD_PARTY_API_KEY=[A-Za-z0-9._~+/-]{20,})'
           if grep -RInE --exclude-dir=.git "$pattern" .; then
             echo 'Potential credential found. Rotate it and remove it from Git history.' >&2
             exit 1
