@@ -10,10 +10,10 @@ the scripts in the current `codex-remote-provider-kit` directory.
 
 Target settings:
 
-- Base URL: `https://ai.inno-flare.com/v1`
-- Provider id: `inno_flare`
+- Base URL: `https://api.example.com/v1` (replace with the real endpoint)
+- Provider id: `third_party`
 - Model: `gpt-5.6-sol`
-- Key environment variable: `INNO_FLARE_API_KEY`
+- Key environment variable: `THIRD_PARTY_API_KEY`
 - Reasoning effort: `high`
 
 Safety and workflow requirements:
@@ -28,7 +28,7 @@ Safety and workflow requirements:
 4. Require my explicit authorization before routing Remote prompts, code, files,
    or tool results to the third party.
 5. Do not accept an API key in chat or place it in a command line. Ask me to set
-   `INNO_FLARE_API_KEY` interactively with `read -rsp`, then run the installer
+   `THIRD_PARTY_API_KEY` interactively with `read -rsp`, then run the installer
    through `sudo -E`.
 6. Back up all overlapping configuration and record existing service state.
 7. Run `bash -n` on every script before installation.

@@ -7,6 +7,21 @@ sudo ./status.sh
 sudo systemctl status codex-remote-provider.service --no-pager
 ```
 
+## 新机器无法自动安装 Codex
+
+自动安装需要 root 权限、systemd，以及 `apt-get`、`dnf`、`yum` 其中之一。
+若发行版不在支持范围内，请先按照该系统的方式安装 `curl` 和 Python 3，再执行
+OpenAI 官方安装命令：
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+sudo ./setup.sh codex
+```
+
+服务器没有图形界面时，脚本会优先使用 `codex login --device-auth`，在终端显示
+登录网址和设备代码。登录完成后必须确保 `codex login status` 显示
+`Logged in using ChatGPT`；仅使用 API key 登录不能满足 Remote 配对要求。
+
 ## 已登录但安装器报告未登录
 
 先运行 `codex login status`，确认输出包含 `Logged in using ChatGPT`。旧版本安装器
@@ -31,7 +46,7 @@ Remote 的 `start` 命令会引导一个独立的托管 app-server daemon。只�
 `$CODEX_HOME/config.toml` 顶层包含：
 
 ```toml
-model_provider = "inno_flare"
+model_provider = "third_party"
 ```
 
 同时确认顶层 `model` 和 `model_reasoning_effort` 与安装参数一致，然后完整停止并

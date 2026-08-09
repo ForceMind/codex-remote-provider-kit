@@ -38,7 +38,7 @@ install_global_command() {
   local temp_file
 
   if [[ -e "$command_file" ]] && ! grep -Fxq "$marker" "$command_file"; then
-    printf 'error: %s already exists and is not managed by this kit\n' "$command_file" >&2
+    printf '错误：%s 已存在，且不由本套件管理\n' "$command_file" >&2
     return 1
   fi
   temp_file=$(mktemp)
@@ -54,11 +54,11 @@ set_top_level_string() {
   local temp_file
 
   [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
-    printf 'invalid config key: %s\n' "$key" >&2
+    printf '配置键无效：%s\n' "$key" >&2
     return 1
   }
   [[ "$value" != *$'\n'* && "$value" != *\"* && "$value" != *\\* ]] || {
-    printf 'unsupported characters in config value for %s\n' "$key" >&2
+    printf '配置项 %s 的值包含不支持的字符\n' "$key" >&2
     return 1
   }
   [[ -f "$config_file" ]] || install -m 600 /dev/null "$config_file"
