@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# shellcheck source=lib.sh
+source "$script_dir/lib.sh"
+
 usage() {
   cat <<'EOF'
 Usage: sudo -E ./install.sh --base-url URL --model MODEL [options]
@@ -107,6 +111,10 @@ if grep -Eq "^[[:space:]]*\[model_providers\.${provider_id//./\\.}\][[:space:]]*
   die "config already defines model_providers.$provider_id outside the managed block"
 fi
 
+# The managed Remote daemon is a separate process. It reads the user-level
+# default provider and does not reliably inherit transient bootstrap flags.
+set_remote_defaults "$tmp_config" "$provider_id" "$model" "$reasoning"
+
 cat >> "$tmp_config" <<EOF
 
 $begin_marker
@@ -182,4 +190,4 @@ systemctl enable --now codex-remote-provider.service
 
 printf 'Installed provider %s with model %s.\n' "$provider_id" "$model"
 printf 'Backup: %s\n' "$backup_dir"
-printf 'Run: sudo %s/status.sh --full\n' "$(cd "$(dirname "$0")" && pwd)"
+printf 'Run: sudo %s/status.sh --full\n' "$script_dir"

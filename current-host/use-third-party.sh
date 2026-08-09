@@ -5,6 +5,8 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "$0")" && pwd)
 target='/etc/systemd/system/codex.service.d/10-inno-flare.conf'
 env_name='INNO_FLARE_API_KEY'
+# shellcheck source=../lib.sh
+source "$script_dir/../lib.sh"
 
 if ! systemctl show-environment | cut -d= -f1 | grep -Fxq "$env_name"; then
   read -rsp "$env_name: " api_key
@@ -17,6 +19,7 @@ if ! systemctl show-environment | cut -d= -f1 | grep -Fxq "$env_name"; then
   unset api_key
 fi
 
+set_remote_defaults /root/.codex/config.toml inno_flare gpt-5.6-sol high
 systemctl stop codex.service >/dev/null 2>&1 || true
 /root/.local/bin/codex remote-control stop --json >/dev/null 2>&1 || true
 install -d -m 755 "$(dirname "$target")"

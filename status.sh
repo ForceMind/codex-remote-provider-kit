@@ -23,12 +23,25 @@ printf '[codex]\n'
 "$CODEX_BIN_PATH" login status
 
 printf '[config]\n'
-python3 - "$CODEX_HOME_DIR/config.toml" "$CODEX_HOME_DIR/$PROVIDER_ID.config.toml" <<'PY'
+python3 - "$CODEX_HOME_DIR/config.toml" "$CODEX_HOME_DIR/$PROVIDER_ID.config.toml" \
+  "$PROVIDER_ID" "$MODEL" "$REASONING" <<'PY'
 import sys, tomllib
-for path in sys.argv[1:]:
+for path in sys.argv[1:3]:
     with open(path, "rb") as handle:
         tomllib.load(handle)
     print(f"ok: {path}")
+with open(sys.argv[1], "rb") as handle:
+    user_config = tomllib.load(handle)
+expected = {
+    "model_provider": sys.argv[3],
+    "model": sys.argv[4],
+    "model_reasoning_effort": sys.argv[5],
+}
+for key, wanted in expected.items():
+    actual = user_config.get(key)
+    if actual != wanted:
+        raise SystemExit(f"default {key} mismatch: expected {wanted}, got {actual!r}")
+    print(f"default {key}: {actual}")
 PY
 
 printf '[models_endpoint]\n'

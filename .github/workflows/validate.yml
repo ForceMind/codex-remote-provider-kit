@@ -19,6 +19,12 @@ jobs:
           while IFS= read -r -d '' file; do
             bash -n "$file"
           done < <(find . -type f -name '*.sh' -print0)
+      - name: Test default provider switching
+        shell: bash
+        run: bash tests/test-provider-config.sh
+      - name: Test command panel
+        shell: bash
+        run: printf '0\n' | bash panel.sh
       - name: Reject likely committed credentials
         shell: bash
         run: |

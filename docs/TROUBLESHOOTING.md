@@ -17,6 +17,20 @@ sudo systemctl status codex-remote-provider.service --no-pager
 4. 确认没有本地 Codex 或第二个 Remote 进程正在写同一会话。
 5. 若第三方宕机，运行 `use-official.sh` 人工回退。
 
+## 新会话仍显示 `model_provider=openai`
+
+Remote 的 `start` 命令会引导一个独立的托管 app-server daemon。只给引导命令
+传递临时 `-c model_provider=...`，不保证该值被后台 daemon 继承。必须确认用户级
+`$CODEX_HOME/config.toml` 顶层包含：
+
+```toml
+model_provider = "inno_flare"
+```
+
+同时确认顶层 `model` 和 `model_reasoning_effort` 与安装参数一致，然后完整停止并
+重新启动 Remote，再创建新会话。`status.sh` 会检查这三个默认值。切换脚本也会
+先更新整组默认值，再重启 daemon。
+
 ## `/v1/models` 成功，但 `/v1/responses` 报 Input must be a list
 
 模型目录与推理接口是两套校验。直接测试 Responses 时需使用数组并启用流式

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# shellcheck source=lib.sh
+source "$script_dir/lib.sh"
+
 ((EUID == 0)) || { printf 'run as root\n' >&2; exit 1; }
 state_file='/var/lib/codex-remote-provider/state.env'
 [[ -r "$state_file" ]] || { printf 'state file missing; nothing to roll back\n' >&2; exit 1; }
@@ -27,6 +31,9 @@ else
   ' "$CODEX_HOME_DIR/config.toml" > "$tmp_config"
   install -m 600 "$tmp_config" "$CODEX_HOME_DIR/config.toml"
   rm -f "$tmp_config"
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model_provider
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model
+  remove_top_level_key "$CODEX_HOME_DIR/config.toml" model_reasoning_effort
 fi
 
 if [[ -f "$BACKUP_DIR/profile.config.toml" ]]; then
