@@ -21,4 +21,15 @@ write_command_launcher "$launcher" "$fake_setup"
 grep -Fxq '# Managed by codex-remote-provider-kit' "$launcher"
 [[ $(cd /tmp && "$launcher") == 'called:menu' ]]
 
+managed_command="$test_dir/managed-command"
+install_global_command "$fake_setup" "$managed_command"
+[[ $(cd / && "$managed_command") == 'called:menu' ]]
+
+unmanaged_command="$test_dir/unmanaged-command"
+printf '#!/usr/bin/env bash\n' > "$unmanaged_command"
+if install_global_command "$fake_setup" "$unmanaged_command" 2>/dev/null; then
+  printf 'unmanaged command was overwritten\n' >&2
+  exit 1
+fi
+
 printf 'global command launcher: ok\n'

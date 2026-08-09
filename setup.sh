@@ -2,6 +2,8 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# shellcheck source=lib.sh
+source "$script_dir/lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -131,6 +133,7 @@ fi
 case "$command_name" in
   menu)
     (($# == 0)) || { printf 'error: menu takes no options\n' >&2; exit 2; }
+    install_global_command "$script_dir/setup.sh"
     show_panel
     ;;
   install)
@@ -140,6 +143,7 @@ case "$command_name" in
         printf 'run sudo ./rollback.sh before reinstalling with different settings\n' >&2
         exit 1
       fi
+      install_global_command "$script_dir/setup.sh"
       printf 'Existing installation detected; restarting the third-party Remote service.\n'
       "$script_dir/use-third-party.sh"
     else
