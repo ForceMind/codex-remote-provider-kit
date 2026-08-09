@@ -32,7 +32,8 @@ Safety and workflow requirements:
    through `sudo -E`.
 6. Back up all overlapping configuration and record existing service state.
 7. Run `bash -n` on every script before installation.
-8. Run `install.sh` with the target settings, then run `status.sh --full`.
+8. Prefer the one-command `setup.sh install` entry point with the target
+   settings; it must install, start, and run `status.sh --full`.
 9. Confirm three independent layers: `/v1/models`, one streamed
    `/v1/responses` request, and one real ephemeral `codex exec` request.
 10. Confirm Remote reports `connected`. Ask me to create a new phone chat and
