@@ -44,7 +44,7 @@ fi
 
 rm -f /etc/codex-remote-provider/provider.env
 rm -f /etc/systemd/system/codex-remote-provider.service
-command_file=${COMMAND_FILE:-/usr/local/bin/codex-remote-provider}
+command_file=${COMMAND_FILE:-/usr/local/bin/codex-rp}
 if [[ -f "$command_file" ]] && grep -Fxq '# Managed by codex-remote-provider-kit' "$command_file"; then
   rm -f "$command_file"
 fi

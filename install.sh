@@ -79,7 +79,7 @@ secret_file="$secret_dir/provider.env"
 state_dir='/var/lib/codex-remote-provider'
 state_file="$state_dir/state.env"
 unit_file='/etc/systemd/system/codex-remote-provider.service'
-command_file='/usr/local/bin/codex-remote-provider'
+command_file='/usr/local/bin/codex-rp'
 command_marker='# Managed by codex-remote-provider-kit'
 begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
 end_marker="# END codex-remote-provider-kit:$provider_id"
@@ -202,5 +202,5 @@ systemctl enable --now codex-remote-provider.service
 printf 'Installed provider %s with model %s.\n' "$provider_id" "$model"
 printf 'Backup: %s\n' "$backup_dir"
 printf 'Background service is enabled for boot.\n'
-printf 'Open the panel from any directory: codex-remote-provider\n'
+printf 'Open the panel from any directory: codex-rp\n'
 printf 'Run: sudo %s/status.sh --full\n' "$script_dir"

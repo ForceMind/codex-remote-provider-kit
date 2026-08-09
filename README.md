@@ -45,7 +45,7 @@ ChatGPT 登录与连接通道。
 首次安装完成后会注册全局命令，以后在任意目录直接运行：
 
 ```bash
-codex-remote-provider
+codex-rp
 ```
 
 安装创建的 `codex-remote-provider.service` 会立即启动并设置为开机自启。退出命令

@@ -9,7 +9,7 @@ Codex Remote third-party provider manager
 
 Usage:
   ./panel.sh
-  codex-remote-provider
+  codex-rp
   sudo ./setup.sh [command] [install options]
 
 Commands:
@@ -30,7 +30,7 @@ Default install settings:
 
 Examples:
   ./panel.sh
-  codex-remote-provider
+  codex-rp
   sudo ./setup.sh install
   sudo ./setup.sh test
   sudo ./setup.sh official

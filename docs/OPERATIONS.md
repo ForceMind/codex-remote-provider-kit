@@ -19,7 +19,7 @@ sudo ./setup.sh install
 安装成功后无需再进入仓库目录。在任意目录运行以下命令即可打开管理面板：
 
 ```bash
-codex-remote-provider
+codex-rp
 ```
 
 Remote 由 `codex-remote-provider.service` 在后台托管并开机自启，关闭面板不会

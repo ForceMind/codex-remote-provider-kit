@@ -7,7 +7,7 @@ source "$repo_dir/lib.sh"
 
 test_dir=$(mktemp -d)
 fake_setup="$test_dir/setup script.sh"
-launcher="$test_dir/codex-remote-provider"
+launcher="$test_dir/codex-rp"
 cleanup() { rm -rf "$test_dir"; }
 trap cleanup EXIT
 
