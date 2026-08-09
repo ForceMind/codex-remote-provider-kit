@@ -67,6 +67,7 @@ sudo ./setup.sh install
 
 `setup.sh install` 会安全地提示输入第三方 API 密钥，然后自动安装、启动服务，并完成
 模型目录、Responses 流式接口和真实 Codex 回合三层检查。密钥输入不会回显。
+按回车后脚本会显示已接收的字符数，便于确认粘贴成功，但不会显示密钥内容。
 安装器还会把用户级默认 `model_provider`、`model` 和推理强度作为一组设置为
 第三方配置；托管 Remote daemon 在创建新会话时会读取这些值。
 

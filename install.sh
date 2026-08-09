@@ -65,10 +65,12 @@ api_key=${!env_name-}
 if [[ -z "$api_key" && -t 0 ]]; then
   read -rsp "${env_name}: " api_key
   printf '\n'
+  if [[ -n "$api_key" ]]; then
+    printf 'API Key received (%d characters, content hidden).\n' "${#api_key}"
+  fi
 fi
 [[ -n "$api_key" ]] || die "set $env_name or run interactively"
-[[ "$api_key" != *$'\n'* ]] || die 'API key must be one line'
-[[ "$api_key" =~ ^[A-Za-z0-9._~+/-]+$ ]] || die 'API key contains unsupported characters'
+is_supported_api_key "$api_key" || die 'API key has unsupported characters; copy only the key, without spaces or quotes'
 
 timestamp=$(date +%Y%m%d-%H%M%S)
 config_file="$codex_home/config.toml"
