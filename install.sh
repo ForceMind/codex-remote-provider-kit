@@ -59,7 +59,7 @@ if [[ -z "$codex_bin" ]]; then
 fi
 [[ -n "$codex_bin" && -x "$codex_bin" ]] || die 'Codex executable not found; pass --codex-bin'
 "$codex_bin" remote-control start --help >/dev/null 2>&1 || die 'this Codex version lacks remote-control start'
-"$codex_bin" login status 2>/dev/null | grep -q 'Logged in using ChatGPT' || die 'Codex is not logged in with ChatGPT'
+is_chatgpt_logged_in "$codex_bin" || die 'Codex is not logged in with ChatGPT'
 
 api_key=${!env_name-}
 if [[ -z "$api_key" && -t 0 ]]; then
