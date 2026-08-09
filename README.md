@@ -42,6 +42,15 @@ ChatGPT 登录与连接通道。
 填写第三方 Base URL、模型、Provider ID 和推理强度，直接回车使用默认值。需要
 系统权限时脚本会自动通过 `sudo` 重新执行，不需要手工拼接命令。
 
+首次安装完成后会注册全局命令，以后在任意目录直接运行：
+
+```bash
+codex-remote-provider
+```
+
+安装创建的 `codex-remote-provider.service` 会立即启动并设置为开机自启。退出命令
+面板不会停止 Remote 后台服务；只有切换、停止或回滚操作才会改变服务状态。
+
 ## 新服务器一键安装并运行
 
 前提：Linux/systemd、Bash、curl、Python 3，以及支持

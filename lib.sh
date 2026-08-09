@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+write_command_launcher() {
+  local target_file=${1:?target file required}
+  local setup_script=${2:?setup script required}
+  local marker='# Managed by codex-remote-provider-kit'
+
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$marker"
+    printf 'exec %q menu "$@"\n' "$setup_script"
+  } > "$target_file"
+  chmod 755 "$target_file"
+}
+
 set_top_level_string() {
   local config_file=${1:?config file required}
   local key=${2:?key required}
