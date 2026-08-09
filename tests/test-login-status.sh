@@ -13,7 +13,7 @@ trap cleanup EXIT
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   '[[ "$*" == "login status" ]] || exit 2' \
-  'printf "Logged in using ChatGPT\n"' > "$mock_codex"
+  'printf "Logged in using ChatGPT\n" >&2' > "$mock_codex"
 chmod 755 "$mock_codex"
 is_chatgpt_logged_in "$mock_codex"
 

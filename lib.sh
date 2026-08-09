@@ -4,7 +4,8 @@ is_chatgpt_logged_in() {
   local codex_bin=${1:?Codex executable required}
   local login_status
 
-  login_status=$("$codex_bin" login status 2>/dev/null) || return 1
+  # Codex 0.147.0 writes the human-readable login status to stderr.
+  login_status=$("$codex_bin" login status 2>&1) || return 1
   [[ "$login_status" == *'Logged in using ChatGPT'* ]]
 }
 

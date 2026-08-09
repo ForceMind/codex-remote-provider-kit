@@ -10,8 +10,9 @@ sudo systemctl status codex-remote-provider.service --no-pager
 ## 已登录但安装器报告未登录
 
 先运行 `codex login status`，确认输出包含 `Logged in using ChatGPT`。旧版本安装器
-在 `pipefail` 下使用提前退出的管道检查，可能把成功登录误判为失败；更新仓库后
-重新运行 `codex-rp` 即可。API key 登录不能替代 Remote 所需的 ChatGPT 登录。
+在 `pipefail` 下使用提前退出的管道检查，并丢弃了 Codex 0.147.0 写到 stderr 的
+状态文本，可能把成功登录误判为失败；更新仓库后重新运行 `codex-rp` 即可。
+API key 登录不能替代 Remote 所需的 ChatGPT 登录。
 
 ## 手机显示“加载消息时出错 / Codex 服务器返回错误”
 
