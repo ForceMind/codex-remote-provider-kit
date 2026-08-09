@@ -1,0 +1,18 @@
+# Secrets and local runtime state
+*.env
+.env*
+provider.env
+*.key
+*.pem
+
+# Backups, logs, and generated packages
+provider-kit-backups/
+*.log
+*.tar.gz
+*.zip
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+*~

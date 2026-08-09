@@ -1,0 +1,51 @@
+name: 脱敏故障报告
+description: 报告安装、切换、Remote 或第三方接口问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不要提交 API 密钥、Authorization header、Cookie、完整环境变量、服务器 IP、会话 ID 或业务代码。密钥一旦暴露请立即吊销。
+  - type: input
+    id: codex_version
+    attributes:
+      label: Codex 版本
+      placeholder: codex-cli x.y.z
+    validations:
+      required: true
+  - type: dropdown
+    id: failing_layer
+    attributes:
+      label: 失败层次
+      options:
+        - systemd / Remote 连接
+        - models 端点
+        - responses 端点
+        - codex exec
+        - 手机新会话
+        - 切换或回滚
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 只写不含密钥和隐私数据的最小步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: redacted_logs
+    attributes:
+      label: 已脱敏日志
+      description: 用 <redacted> 替换令牌、IP、主机名、用户名和会话 ID。
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全确认
+      options:
+        - label: 我已确认内容不含任何密钥、令牌、Cookie 或完整环境变量。
+          required: true
+        - label: 如密钥曾暴露，我已经吊销并轮换。
+          required: true
