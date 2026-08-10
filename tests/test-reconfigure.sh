@@ -10,7 +10,10 @@ codex_home="$test_dir/codex-home"
 mkdir -p "$mock_bin" "$codex_home"
 cat > "$mock_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
-case ${1-} in is-active|is-enabled) exit 1 ;; esac
+case ${1-} in
+  is-active) [[ ${2-} == "${MOCK_ACTIVE_UNIT:-}" ]]; exit ;;
+  is-enabled) exit 1 ;;
+esac
 exit 0
 EOF
 chmod 755 "$mock_bin/systemctl"
@@ -23,9 +26,8 @@ command_file="$test_dir/codex-rp"
 config_file="$codex_home/config.toml"
 profile_file="$codex_home/third_party.config.toml"
 cat > "$config_file" <<'EOF'
-model_provider = "third_party"
-model = "old-model"
-model_reasoning_effort = "high"
+model = "official-model"
+model_reasoning_effort = "low"
 
 # BEGIN codex-remote-provider-kit:third_party
 [model_providers.third_party]
@@ -41,6 +43,8 @@ chmod 600 "$secret_file"
 printf '# Managed by codex-remote-provider-kit\n' > "$third_party_unit"
 printf '# Managed by codex-remote-provider-kit\n' > "$official_unit"
 printf '# Managed by codex-remote-provider-kit\n' > "$command_file"
+mkdir -p "$test_dir/backup"
+printf 'model = "official-model"\nmodel_reasoning_effort = "low"\n' > "$test_dir/backup/config.toml"
 {
   printf 'PROVIDER_ID=%q\n' third_party
   printf 'ENV_NAME=%q\n' TEST_KEY
@@ -63,14 +67,16 @@ python3 - "$config_file" <<'PY'
 import sys, tomllib
 with open(sys.argv[1], "rb") as handle:
     config = tomllib.load(handle)
-assert config["model"] == "new-model"
-assert config["model_reasoning_effort"] == "medium"
+assert "model_provider" not in config
+assert config["model"] == "official-model"
+assert config["model_reasoning_effort"] == "low"
 assert config["model_providers"]["third_party"]["base_url"] == "https://new.test/v1"
 PY
 # shellcheck disable=SC1090
 source "$state_file"
 [[ "$BASE_URL" == https://new.test/v1 && "$MODEL" == new-model && "$REASONING" == medium ]]
 grep -Fxq 'TEST_KEY="old_key"' "$secret_file"
+grep -Fq 'https://new.test/v1 / new-model / medium' "$test_dir/reconfigure.log"
 
 printf 'new_key==\n' | env "${common_env[@]}" \
   bash "$repo_dir/reconfigure.sh" --key-only > "$test_dir/rotate.log"
