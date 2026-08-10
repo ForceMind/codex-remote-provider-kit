@@ -132,7 +132,17 @@ common_env=(
 third_party_name=${third_party_unit##*/}
 official_name=${official_unit##*/}
 
-printf 'USE_OFFICIAL\n' | env "${common_env[@]}" \
+printf 'n\n' | env "${common_env[@]}" \
+  bash "$repo_dir/use-official.sh" > "$test_dir/use-official-cancel.log"
+grep -Fq '操作已取消' "$test_dir/use-official-cancel.log"
+python3 - "$config_file" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    config = tomllib.load(handle)
+assert config["model_provider"] == "third_party"
+PY
+
+printf 'y\n' | env "${common_env[@]}" \
   bash "$repo_dir/use-official.sh" > "$test_dir/use-official.log"
 python3 - "$config_file" <<'PY'
 import sys, tomllib
@@ -182,7 +192,7 @@ fi
 
 : > "$mock_log"
 set +e
-printf 'USE_OFFICIAL\n' | env "${common_env[@]}" \
+printf 'y\n' | env "${common_env[@]}" \
   MOCK_ACTIVE_UNIT="$third_party_name" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   MOCK_FAIL_ENABLE_UNIT="$official_name" \

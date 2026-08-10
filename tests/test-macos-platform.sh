@@ -135,7 +135,7 @@ env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status \
 grep -Fq '当前模式：third-party' "$test_dir/status-third.log"
 grep -Fq 'ChatGPT 桌面应用：运行中' "$test_dir/status-third.log"
 
-printf 'USE_OFFICIAL\n' | env "${common_env[@]}" \
+printf 'y\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" official > "$test_dir/official.log"
 python3 - "$config_file" <<'PY'
 import sys, tomllib

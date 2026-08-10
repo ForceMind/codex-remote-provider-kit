@@ -8,7 +8,7 @@ source "$repo_dir/lib.sh"
 test_dir=$(mktemp -d)
 config_file="$test_dir/config.toml"
 cleanup() {
-  rm -f "$config_file" "$test_dir/backup.toml" "$test_dir/empty.toml"
+  rm -f "$config_file" "$test_dir/backup.toml" "$test_dir/empty.toml" "$test_dir/state.env"
   rmdir "$test_dir"
 }
 trap cleanup EXIT
@@ -77,3 +77,14 @@ assert config["model_reasoning_effort"] == "medium"
 PY
 
 printf 'provider config switching: ok\n'
+
+state_file="$test_dir/state.env"
+printf 'BASE_URL=%q\nMODEL=%q\n' 'https://old.test/v1' 'old-model' > "$state_file"
+set_state_variable "$state_file" BASE_URL 'https://new.test/v1'
+set_state_variable "$state_file" REASONING high
+# shellcheck disable=SC1090
+source "$state_file"
+[[ "$BASE_URL" == 'https://new.test/v1' ]]
+[[ "$MODEL" == 'old-model' ]]
+[[ "$REASONING" == high ]]
+printf 'provider state update: ok\n'

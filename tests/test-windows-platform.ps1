@@ -69,7 +69,7 @@ shell_tool = true
     if ($statusOutput -notmatch '当前模式：third-party') { throw 'Third-party status was not detected.' }
     if ($statusOutput -notmatch '当前用户可解密') { throw 'DPAPI decryption was not verified.' }
 
-    $env:CODEX_RP_CONFIRMATION = 'USE_OFFICIAL'
+    $env:CODEX_RP_CONFIRMATION = 'y'
     & $entry official
     $config = [System.IO.File]::ReadAllText($configFile)
     if ($config.Contains('model_provider = "third_party"')) { throw 'Official mode did not restore provider.' }

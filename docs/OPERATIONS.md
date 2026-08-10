@@ -141,7 +141,20 @@ sudo ./setup.sh install
 
 ## 密钥轮换
 
-先在供应商后台生成新密钥，然后：
+先在供应商后台生成新密钥，然后从面板选择“仅修改第三方 API Key”，或运行：
+
+```bash
+codex-rp rotate-key
+```
+
+如需同时修改接口地址、模型或推理强度，运行：
+
+```bash
+codex-rp reconfigure
+```
+
+脚本会保留当前官方/第三方模式；第三方正在运行时会重启并执行完整验证，官方
+模式下只保存配置，等下次切回第三方时生效。也可以按传统方式手工轮换：
 
 ```bash
 sudoedit /etc/codex-remote-provider/provider.env

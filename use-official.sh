@@ -16,9 +16,13 @@ third_party_unit_name=${third_party_unit_file##*/}
 official_unit_name=${official_unit_file##*/}
 
 printf '此操作将停止第三方供应商 Remote，并启动默认供应商。\n'
-printf '可能会消耗官方额度。请输入 USE_OFFICIAL 继续：'
+printf '可能会消耗官方额度。是否继续？[y/N]：'
 read -r confirmation
-[[ "$confirmation" == 'USE_OFFICIAL' ]] || { printf '操作已取消\n'; exit 1; }
+case "$confirmation" in
+  y|Y) ;;
+  n|N|'') printf '操作已取消\n'; exit 0 ;;
+  *) printf '请输入 y 或 n；操作已取消\n'; exit 1 ;;
+esac
 
 CODEX_RP_STATE_FILE="$state_file" "$script_dir/refresh-units.sh"
 config_file="$CODEX_HOME_DIR/config.toml"

@@ -536,9 +536,13 @@ use_official() {
   local confirmation
   load_state
   printf '此操作只恢复安装前的官方默认模型配置，可能使用官方额度。\n'
-  printf '请输入 USE_OFFICIAL 继续：'
+  printf '是否继续？[y/N]：'
   read -r confirmation
-  [[ "$confirmation" == USE_OFFICIAL ]] || die '操作已取消'
+  case "$confirmation" in
+    y|Y) ;;
+    n|N|'') printf '操作已取消\n'; return 0 ;;
+    *) die '请输入 y 或 n；操作已取消' ;;
+  esac
   restore_official_defaults
   printf '已恢复安装前官方默认配置。Keychain、账号和 Remote 配对均未删除。\n'
   printf '请明确运行 codex-rp restart-app，再新建会话。\n'

@@ -243,6 +243,8 @@ sudo ./setup.sh status       # 基础检查，不生成模型回复
 sudo ./setup.sh test         # 完整真实调用检查
 sudo ./setup.sh official     # 人工切回官方推理
 sudo ./setup.sh third-party  # 切回第三方推理
+sudo ./setup.sh reconfigure  # 修改接口、模型或推理强度
+sudo ./setup.sh rotate-key   # 仅更换第三方 API Key
 sudo ./setup.sh rollback     # 完整回滚
 ```
 
@@ -276,7 +278,7 @@ sudo ./status.sh --full
 sudo ./use-official.sh
 ```
 
-脚本要求输入确认词，防止无意消耗官方额度。恢复第三方：
+脚本会显示官方额度警告，输入 `y` 确认，输入 `n` 或直接回车取消。恢复第三方：
 
 ```bash
 sudo ./use-third-party.sh

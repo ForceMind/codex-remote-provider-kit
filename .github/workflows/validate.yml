@@ -39,10 +39,13 @@ jobs:
         run: bash tests/test-systemd-units.sh
       - name: Test provider installation transaction
         shell: bash
-        run: bash tests/test-install-provider.sh
+        run: sudo -E bash tests/test-install-provider.sh
       - name: Test mode switching and rollback lifecycle
         shell: bash
-        run: bash tests/test-lifecycle.sh
+        run: sudo -E bash tests/test-lifecycle.sh
+      - name: Test provider reconfiguration and key rotation
+        shell: bash
+        run: sudo -E bash tests/test-reconfigure.sh
       - name: Test macOS configuration lifecycle
         shell: bash
         run: bash tests/test-macos-platform.sh

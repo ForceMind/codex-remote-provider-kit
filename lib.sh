@@ -89,6 +89,29 @@ install_global_command() {
   rm -f "$temp_file"
 }
 
+set_state_variable() {
+  local state_file=${1:?state file required}
+  local key=${2:?state key required}
+  local value=${3-}
+  local encoded temp_file
+
+  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
+  printf -v encoded '%q' "$value"
+  temp_file=$(mktemp)
+  awk -v key="$key" -v encoded="$encoded" '
+    BEGIN { wrote=0 }
+    $0 ~ "^" key "=" {
+      if (!wrote) print key "=" encoded
+      wrote=1
+      next
+    }
+    { print }
+    END { if (!wrote) print key "=" encoded }
+  ' "$state_file" > "$temp_file"
+  install -m 600 "$temp_file" "$state_file"
+  rm -f "$temp_file"
+}
+
 write_third_party_unit() {
   local target_file=${1:?target file required}
   local codex_bin=${2:?Codex executable required}

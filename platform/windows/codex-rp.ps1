@@ -358,24 +358,24 @@ function Install-Provider {
         $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $managed = @(
             '',
-            '# BEGIN codex-remote-provider-kit:' + $ProviderId,
-            '[model_providers.' + $ProviderId + ']',
-            'name = "' + (ConvertTo-TomlString $ProviderId) + '"',
-            'base_url = "' + (ConvertTo-TomlString $effectiveBaseUrl) + '"',
+            ('# BEGIN codex-remote-provider-kit:' + $ProviderId),
+            ('[model_providers.' + $ProviderId + ']'),
+            ('name = "' + (ConvertTo-TomlString $ProviderId) + '"'),
+            ('base_url = "' + (ConvertTo-TomlString $effectiveBaseUrl) + '"'),
             'wire_api = "responses"',
             '',
-            '[model_providers.' + $ProviderId + '.auth]',
-            'command = "' + (ConvertTo-TomlString $powershellExe) + '"',
-            'args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "' + (ConvertTo-TomlString $helperFile) + '", "' + (ConvertTo-TomlString $secretFile) + '"]',
-            '# END codex-remote-provider-kit:' + $ProviderId
+            ('[model_providers.' + $ProviderId + '.auth]'),
+            ('command = "' + (ConvertTo-TomlString $powershellExe) + '"'),
+            ('args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "' + (ConvertTo-TomlString $helperFile) + '", "' + (ConvertTo-TomlString $secretFile) + '"]'),
+            ('# END codex-remote-provider-kit:' + $ProviderId)
         )
         Write-AtomicLines $temporaryConfig (@(Read-ConfigLines $temporaryConfig) + $managed)
 
         $temporaryProfile = Join-Path $staging 'profile.config.toml'
         Write-AtomicLines $temporaryProfile @(
-            'model = "' + (ConvertTo-TomlString $Model) + '"',
-            'model_provider = "' + (ConvertTo-TomlString $ProviderId) + '"',
-            'model_reasoning_effort = "' + (ConvertTo-TomlString $Reasoning) + '"'
+            ('model = "' + (ConvertTo-TomlString $Model) + '"'),
+            ('model_provider = "' + (ConvertTo-TomlString $ProviderId) + '"'),
+            ('model_reasoning_effort = "' + (ConvertTo-TomlString $Reasoning) + '"')
         )
         Save-State $staging @{
             provider_id = $ProviderId
@@ -449,8 +449,11 @@ function Use-ThirdParty {
 
 function Use-Official {
     $state = Load-State
-    $confirmation = Read-Confirmation '只恢复安装前官方默认配置，可能使用官方额度。输入 USE_OFFICIAL 继续'
-    if ($confirmation -ne 'USE_OFFICIAL') { Fail '操作已取消。' }
+    $confirmation = Read-Confirmation '只恢复安装前官方默认配置，可能使用官方额度。是否继续？[y/N]'
+    if ($confirmation -notmatch '^[yY]$') {
+        Write-Host '操作已取消。'
+        return
+    }
     Restore-OfficialDefaults $state
     Write-Host '已恢复安装前官方默认配置。DPAPI 凭据、账号和 Remote 配对均未删除。'
     Write-Host '请明确运行 codex-rp restart-app，再新建会话。'
