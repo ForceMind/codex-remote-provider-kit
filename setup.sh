@@ -2,6 +2,9 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+if [[ $(uname -s) == Darwin ]]; then
+  exec "$script_dir/platform/macos/codex-rp.sh" "$@"
+fi
 # shellcheck source=lib.sh
 source "$script_dir/lib.sh"
 
@@ -38,6 +41,9 @@ Codex Remote 第三方模型供应商管理工具
   sudo ./setup.sh test
   sudo ./setup.sh official
   sudo ./setup.sh install --base-url https://provider.example/v1 --model gpt-5.5
+
+安装选项会传递给 install-provider.sh。第三方地址默认必须使用 HTTPS；只有本机
+隔离测试确实需要明文 HTTP 时，才可显式增加 --allow-http。
 
 安装器会以不回显的方式询问供应商密钥。切勿通过命令行参数传递密钥，
 也不要将密钥保存在本仓库中。

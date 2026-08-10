@@ -1,11 +1,40 @@
 # 故障排查
 
-先运行：
+Linux/systemd 宿主先运行：
 
 ```bash
 sudo ./status.sh
 sudo systemctl status codex-remote-provider.service --no-pager
 ```
+
+`status.sh` 会显示 `third-party` 或 `official`。如果当前处于官方模式，直接查看
+`codex-remote-official.service`；若两个 unit 同时 active 或都未运行，状态检查会
+明确失败，而不是误报第三方可用。
+
+macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 ChatGPT 桌面
+应用，并与手机登录同一账号/workspace；移动端 Remote 配对需要从桌面应用的
+`Settings > Connections` 开始，不能用本工具替代官方配对流程。
+
+## macOS/Windows 切换后仍使用旧 provider
+
+桌面切换默认不会自动关闭 ChatGPT。运行 `codex-rp restart-app`，确认短暂断开后
+重新连接，再创建新会话。已有活跃会话可能保留切换前的 app-server/provider，不要
+同时在手机和桌面继续写同一会话。
+
+macOS 可在“钥匙串访问”中确认服务名 `codex-remote-provider-kit:<provider-id>`；
+Windows 可确认 `%LOCALAPPDATA%\CodexRemoteProviderKit\active\provider.key` 存在。
+不要打印、复制或手工解密令牌。凭据损坏时使用 `codex-rp rotate-key`。
+
+若 Windows 状态显示“当前用户无法解密”，通常是换了 Windows 用户运行工具，或把
+另一个用户生成的 `provider.key` 复制了过来。请切回最初安装的桌面用户；跨用户迁移
+时应执行回滚后重新安装并输入新密钥，不要复制 DPAPI 密文。
+
+## Windows 与 WSL 配置不一致
+
+Windows ChatGPT 应用使用 `%USERPROFILE%\.codex`。WSL2 的 Codex 默认使用 Linux
+`~/.codex`，不会自动共享配置、认证或会话。若确实需要从 WSL 使用同一目录，按
+OpenAI 官方说明设置 `CODEX_HOME`；不要同时运行 Windows 原生和 WSL 两套安装器
+修改同一文件。
 
 ## 新机器无法自动安装 Codex
 
@@ -115,6 +144,12 @@ sudo systemctl restart codex-remote-provider.service
 常见原因是密钥过期、权限不足、环境变量名与 provider 配置不一致。轮换密钥后
 重启服务。排查时只检查“变量是否存在”和 HTTP 状态，不输出变量值。
 
+## 安装器拒绝 HTTP Base URL
+
+这是默认安全策略：API 密钥和模型内容不能通过明文 HTTP 发送。生产、互联网和
+普通局域网环境都应使用 HTTPS。只有隔离的本机兼容性测试可在明确理解风险后，
+通过命令行增加 `--allow-http`；面板不会默认放宽此限制。
+
 ## 粘贴 API Key 时没有显示，随后提示字符不支持
 
 密钥输入使用静默模式，键入或粘贴时不显示任何字符是正常的；按回车后会显示
@@ -131,3 +166,7 @@ sudo systemctl restart codex-remote-provider.service
 
 运行 `rollback.sh` 恢复安装前状态，并查看备份目录。若要提交 Issue，请使用
 仓库模板，仅附脱敏后的版本号、HTTP 状态、时间和最少日志。
+
+成功回滚后，活动 `state.env` 会移入同目录的 `audit/`，因此可以直接重新安装。
+如果安装中途失败，安装器会自动尝试恢复原文件和服务，并保留故障前备份目录；
+先检查恢复提示和脱敏日志，不要手工删除 Codex 会话。

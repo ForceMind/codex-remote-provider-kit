@@ -1,8 +1,8 @@
 # Codex Remote 第三方模型迁移套件
 
-这套脚本用于在 Linux/systemd 服务器上，让 Codex Remote 的**模型推理**走
-兼容 OpenAI Responses API 的第三方接口，同时保留手机 Remote 所需的官方
-ChatGPT 登录与连接通道。
+这套工具用于在 Linux、macOS 和 Windows 上，让 Codex 的**模型推理**走兼容
+OpenAI Responses API 的第三方接口，同时保留 Remote 所需的官方 ChatGPT 登录、
+workspace、设备配对和消息通道。
 
 > 重要：这不是“完全绕过官方账户”。远控配对、登录和消息传输仍依赖官方
 > 服务；提示词、代码、工具定义和工具结果则可能发送到第三方模型供应商。
@@ -10,13 +10,17 @@ ChatGPT 登录与连接通道。
 ## 仓库内容
 
 - `install.sh`：供 `curl | sh` 使用的公开在线安装入口。
+- `install-windows.ps1`：供 Windows PowerShell 使用的公开在线安装入口。
 - `install-provider.sh`：安装第三方 provider、专用 systemd 服务和安全的密钥文件。
 - `install-codex.sh`：检查系统依赖，安装 Codex CLI 并引导 ChatGPT 登录。
 - `setup.sh`：一键安装、启动、完整验证，以及统一管理入口。
+- `refresh-units.sh`：升级时安全刷新官方/第三方 systemd unit 和全局命令。
 - `status.sh`：分层检查服务、配置、模型接口和真实 Codex 调用。
 - `use-official.sh`：人工切回默认/官方推理，可能消耗官方额度。
 - `use-third-party.sh`：人工切回第三方推理。
 - `rollback.sh`：恢复安装前配置并移除持久化密钥。
+- `platform/macos/`：macOS Keychain、配置切换和桌面应用管理入口。
+- `platform/windows/`：Windows DPAPI、PowerShell 配置切换和桌面应用管理入口。
 - `docs/OPERATIONS.md`：日常启动、切换、升级和密钥轮换手册。
 - `docs/TROUBLESHOOTING.md`：按症状排查手机报错、接口错误和进程冲突。
 - `docs/ARCHITECTURE.md`：数据流、边界和回退机制。
@@ -25,12 +29,40 @@ ChatGPT 登录与连接通道。
 
 ## 安全边界
 
-不要把 API 密钥写进仓库、聊天、命令行参数或 `config.toml`。安装器会把密钥
-写入 `/etc/codex-remote-provider/provider.env`，权限为 root-only。请只使用可信
-供应商，并假设第三方能够看到模型调用中发送的内容。
+不要把 API 密钥写进仓库、聊天、命令行参数或 `config.toml`。Linux 将密钥写入
+root-only `EnvironmentFile`；macOS 存入当前用户 Keychain；Windows 使用当前用户
+DPAPI 加密。桌面平台通过 Codex 官方支持的 provider `auth.command` 在需要时读取
+密钥。请只使用可信供应商，并假设第三方能够看到模型调用中发送的内容。
 
 如果密钥曾经发到聊天、日志、终端截图或工单中，应立即在供应商后台吊销并
 生成新密钥。私有仓库也不能替代密钥轮换。
+
+## 平台支持
+
+| 平台 | Remote 宿主 | 凭据存储 | 后台管理 |
+|---|---|---|---|
+| Linux/systemd | Codex Remote CLI daemon | root-only EnvironmentFile | 两个互斥 systemd unit |
+| macOS | ChatGPT 桌面应用 | macOS Keychain | 不自动重启应用 |
+| Windows 原生 | ChatGPT 桌面应用 | 当前用户 DPAPI | 不自动重启应用 |
+
+macOS/Windows 切换默认只原子更新用户级 Codex 配置，不会自动退出或重启 ChatGPT，
+因此不会无提示中断 Remote。需要应用新配置时，由用户明确执行 `restart-app`；这会
+造成短暂断线，但不会注销账号或删除配对。
+
+若机器还没有 Codex，套件会自动调用 OpenAI 官方安装器。对应的官方独立命令是：
+
+```bash
+# macOS / Linux
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
+```
+
+这些命令只负责 Codex；本套件的一键入口会在此基础上继续安装中文管理面板、
+安全凭据读取和第三方 provider 配置。
 
 ## 一键命令面板
 
@@ -43,7 +75,7 @@ ChatGPT 登录与连接通道。
 面板统一提供安装、状态检查、完整测试、第三方/官方切换和回滚。首次安装可以
 填写第三方 Base URL、模型、Provider ID 和推理强度；Base URL 必须替换为真实
 地址，其他项目可直接回车使用默认值。需要系统权限时脚本会自动通过 `sudo`
-重新执行，不需要手工拼接命令。
+重新执行，不需要手工拼接命令。macOS 使用当前用户目录和 Keychain，不需要 root。
 套件自身的菜单、帮助、进度和错误提示均使用中文；systemd、Codex CLI 与第三方
 接口直接返回的字段或日志会保留原文，便于检索和排障。
 
@@ -56,22 +88,24 @@ codex-rp
 从旧版本升级时，在仓库中运行一次新版 `./panel.sh` 即可补装该命令，不需要回滚、
 重新安装或重新输入 API 密钥。
 
-安装创建的 `codex-remote-provider.service` 会立即启动并设置为开机自启。退出命令
-面板不会停止 Remote 后台服务；只有切换、停止或回滚操作才会改变服务状态。
+Linux 安装会创建第三方 `codex-remote-provider.service` 和官方
+`codex-remote-official.service`，并且始终只启用其中一个。首次安装立即启用第三方
+模式；退出命令面板不会停止 Remote 后台服务，切换后的模式也会跨系统重启保持。
 
-## 新服务器从零安装并运行
+## Linux 服务器从零安装并运行
 
 前提：使用 systemd 的 Linux 服务器、root/sudo 权限，以及一枚第三方供应商 API
 密钥。套件会检查 `curl` 和 Python 3；缺少时会通过 `apt-get`、`dnf` 或 `yum`
 安装。若没有兼容的 Codex CLI，则调用 OpenAI 官方独立安装器。
 
-仓库公开后，推荐直接运行在线安装命令：
+Linux 和 macOS 都可以运行以下公开在线安装命令；脚本会自动识别平台：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit/main/install.sh | sh
 ```
 
-该命令会把套件安装到 `/opt/codex-remote-provider-kit`，升级时先备份旧目录，
+Linux 安装到 `/opt/codex-remote-provider-kit`；macOS 安装到当前用户的
+`~/Library/Application Support/CodexRemoteProviderKit/app`。升级时先备份旧目录，
 然后打开中文面板。若希望先审查脚本，可以先下载 `install.sh`，阅读后再执行。
 
 推荐直接把本目录旁的压缩包复制到新机器，这样目标机不需要预装 Git：
@@ -125,8 +159,8 @@ sudo ./setup.sh codex
 安装器还会把用户级默认 `model_provider`、`model` 和推理强度作为一组设置为
 第三方配置；托管 Remote daemon 在创建新会话时会读取这些值。
 
-已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖备份或配置，只会重新启动
-第三方 Remote 并执行完整检查。
+已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖初始备份或要求重新输入密钥；
+它会刷新新版 unit 与全局命令、切回第三方 Remote，并执行完整检查。
 
 如需覆盖默认参数：
 
@@ -140,11 +174,69 @@ sudo ./setup.sh install \
 ```
 
 安装器会备份重叠配置、校验 TOML、保存原服务状态，并启动独立的
-`codex-remote-provider.service`。
+`codex-remote-provider.service`。安装过程按事务处理：若写入后启动服务失败，会
+尝试恢复安装前的配置、unit、全局命令和服务状态，并且不会留下“已安装”状态。
+
+第三方 Base URL 默认必须使用 HTTPS。只有隔离的本机测试确实需要 HTTP 时，才可
+在命令行安装后附加 `--allow-http`；不要通过公网发送明文 API 密钥。
+
+## macOS 安装与 Remote
+
+macOS 使用与 Linux 相同的在线入口：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit/main/install.sh | sh
+```
+
+安装器会在缺少 Codex CLI 时调用 OpenAI 官方独立安装器，然后通过中文面板读取
+第三方参数。密钥保存在当前用户 Keychain，配置中的 `auth.command` 会调用
+`/usr/bin/security` 读取令牌；不会把密钥写入 TOML。
+
+先在最新版 ChatGPT 桌面应用中登录正确的账号/workspace，并在
+`Settings > Connections > Control this Mac` 完成手机配对。安装或切换 provider
+不会改变这些状态。切换后明确运行：
+
+```bash
+codex-rp restart-app
+codex-rp status
+codex-rp test
+```
+
+`restart-app` 会要求输入确认词，因为重启应用会让 Remote 短暂断开。恢复后请在
+手机上新建会话，不要复用切换前仍有活跃写入者的会话。
+
+## Windows 原生安装与 Remote
+
+在 PowerShell 中运行公开安装入口：
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit/main/install-windows.ps1 | iex"
+```
+
+若系统缺少 Codex CLI，工具会调用 OpenAI 官方 Windows 安装器
+`https://chatgpt.com/codex/install.ps1`。第三方密钥使用当前 Windows 用户的 DPAPI
+加密；provider 通过命令式认证助手按需解密，TOML 中只保存助手和加密文件路径。
+安装器兼容 Windows PowerShell 5.1，中文脚本使用带 BOM 的 UTF-8；全局 `.cmd`
+启动器只引用同目录 PowerShell 助手，不嵌入可能含中文用户名的绝对路径。升级若在
+替换程序、启动器或用户 PATH 时失败，会恢复旧安装和原 PATH。
+
+先在 ChatGPT Windows 应用中登录正确账号/workspace，并在
+`Settings > Connections > Control this PC` 完成配对。重新打开终端后使用：
+
+```powershell
+codex-rp install -BaseUrl https://provider.example/v1 -Model gpt-5.6-sol
+codex-rp restart-app
+codex-rp status
+codex-rp test
+```
+
+WSL2 默认使用另一份 `~/.codex`，不会自动与 Windows 应用共享配置、认证和会话；
+需要 WSL 工作流时应明确设置 `CODEX_HOME`，不要同时安装两份套件争用同一配置。
 
 ## 验证
 
-统一管理入口：
+以下带 `sudo` 的统一管理入口适用于 Linux；macOS/Windows 使用前述不带 sudo 的
+`codex-rp` 命令：
 
 ```bash
 sudo ./setup.sh status       # 基础检查，不生成模型回复
@@ -165,6 +257,9 @@ sudo ./status.sh
 ```bash
 sudo ./status.sh --full
 ```
+
+官方模式下，即使指定 `--full` 也不会自动生成模型回复，以免意外消耗官方额度；
+此时脚本只验证服务、登录状态和安装前默认配置是否已经恢复。
 
 最后在手机上**新建会话**，发送 `Reply exactly OK`。不要让本地 Codex 与手机
 同时打开同一个会话；会话存储只允许一个活跃写入者。
@@ -187,11 +282,18 @@ sudo ./use-official.sh
 sudo ./use-third-party.sh
 ```
 
+两次切换都会更新 systemd 的开机启用状态，因此服务器重启后仍保持最后一次人工
+选择，不会自动从第三方故障转到官方。
+
 完全撤销本套配置：
 
 ```bash
 sudo ./rollback.sh
 ```
+
+回滚会将不含密钥的安装状态移动到
+`/var/lib/codex-remote-provider/audit/` 作为审计记录，并移除活动状态文件，因此
+回滚完成后可以直接重新安装。
 
 本项目刻意不做自动故障转移，因为自动切到官方模型可能产生意外费用。完整
 运行方式见 [日常运维](docs/OPERATIONS.md)，报错时见
@@ -206,9 +308,20 @@ sudo ./rollback.sh
   的模型仍可正常调用。
 - Codex CLI/Remote 属于会更新的软件。升级后先执行 `status.sh --full`，再让手机
   承担正式工作。
+- 当前 unit 使用 `Type=oneshot` 启动 Codex 自身的后台 daemon；systemd 能持久化
+  所选模式，但不能直接监督 daemon 的实际 PID。应结合 `status.sh` 做可用性检查。
+- OpenAI 官方支持 macOS/Windows 桌面应用作为 Remote 宿主，也支持自定义 provider
+  的命令式认证；但官方文档没有承诺每个第三方 Responses 网关都兼容桌面 Remote。
+  两个平台发布前仍需在真实设备上执行 `status`、`test` 和手机新会话验证。
 
 ## 官方参考
 
 - [Codex CLI](https://developers.openai.com/codex/cli/)
 - [Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)
 - [Remote connections](https://learn.chatgpt.com/docs/remote-connections)
+- [Windows 桌面应用](https://learn.chatgpt.com/docs/windows/windows-app)
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。第三方服务、Codex、ChatGPT 及其各自依赖仍受
+对应供应商条款约束。

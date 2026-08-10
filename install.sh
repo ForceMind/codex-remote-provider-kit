@@ -1,13 +1,27 @@
 #!/bin/sh
 set -eu
 
-repo_slug=${CODEX_RP_REPO:-ForceMind/codex-remote-provider-kit}
-repo_ref=${CODEX_RP_REF:-main}
-install_dir=${CODEX_RP_INSTALL_DIR:-/opt/codex-remote-provider-kit}
-archive_url=${CODEX_RP_ARCHIVE_URL:-https://github.com/${repo_slug}/archive/refs/heads/${repo_ref}.tar.gz}
-
 say() { printf '%s\n' "$*"; }
 die() { printf '错误：%s\n' "$*" >&2; exit 1; }
+
+repo_slug=${CODEX_RP_REPO:-ForceMind/codex-remote-provider-kit}
+repo_ref=${CODEX_RP_REF:-main}
+platform_name=${CODEX_RP_TEST_PLATFORM:-$(uname -s)}
+case "$platform_name" in
+  Linux)
+    default_install_dir='/opt/codex-remote-provider-kit'
+    platform_entry='panel.sh'
+    ;;
+  Darwin)
+    default_install_dir="${HOME}/Library/Application Support/CodexRemoteProviderKit/app"
+    platform_entry='platform/macos/codex-rp.sh'
+    ;;
+  *)
+    die '此 Shell 安装入口支持 Linux/macOS；Windows 请使用 install-windows.ps1'
+    ;;
+esac
+install_dir=${CODEX_RP_INSTALL_DIR:-$default_install_dir}
+archive_url=${CODEX_RP_ARCHIVE_URL:-https://github.com/${repo_slug}/archive/refs/heads/${repo_ref}.tar.gz}
 
 command -v curl >/dev/null 2>&1 || die '缺少 curl，请先安装后重试'
 command -v tar >/dev/null 2>&1 || die '缺少 tar，请先安装后重试'
@@ -47,7 +61,7 @@ esac
 
 tar -xzf "$archive_file" -C "$temp_dir"
 source_dir="$temp_dir/$source_root"
-[ -x "$source_dir/panel.sh" ] || die '压缩包中缺少可执行的 panel.sh'
+[ -x "$source_dir/$platform_entry" ] || die "压缩包中缺少可执行的 $platform_entry"
 
 timestamp=$(date +%Y%m%d-%H%M%S)
 staging_dir="${install_parent}/.codex-remote-provider-kit.new-${timestamp}-$$"
@@ -76,8 +90,12 @@ if [ "${CODEX_RP_NO_LAUNCH:-0}" != 1 ] && ( : </dev/tty ) 2>/dev/null; then
   say '正在打开中文安装面板……'
   cleanup
   trap - 0
-  exec "$install_dir/panel.sh" </dev/tty >/dev/tty
+  exec "$install_dir/$platform_entry" menu </dev/tty >/dev/tty
 fi
 
 say '当前没有交互式终端，请稍后运行：'
-say "  sudo $install_dir/setup.sh menu"
+if [ "$platform_name" = Darwin ]; then
+  say "  \"$install_dir/$platform_entry\" menu"
+else
+  say "  sudo $install_dir/setup.sh menu"
+fi

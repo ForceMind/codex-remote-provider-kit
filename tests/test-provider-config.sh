@@ -8,7 +8,7 @@ source "$repo_dir/lib.sh"
 test_dir=$(mktemp -d)
 config_file="$test_dir/config.toml"
 cleanup() {
-  rm -f "$config_file" "$test_dir/backup.toml"
+  rm -f "$config_file" "$test_dir/backup.toml" "$test_dir/empty.toml"
   rmdir "$test_dir"
 }
 trap cleanup EXIT
@@ -45,6 +45,20 @@ import sys, tomllib
 with open(sys.argv[1], "rb") as handle:
     config = tomllib.load(handle)
 assert "model_provider" not in config
+PY
+
+empty_config="$test_dir/empty.toml"
+: > "$empty_config"
+set_remote_defaults "$empty_config" third_party gpt-5.6-sol high
+python3 - "$empty_config" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    config = tomllib.load(handle)
+assert config == {
+    "model_provider": "third_party",
+    "model": "gpt-5.6-sol",
+    "model_reasoning_effort": "high",
+}
 PY
 
 backup_file="$test_dir/backup.toml"
