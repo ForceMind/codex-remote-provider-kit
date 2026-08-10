@@ -65,7 +65,7 @@ shell_tool = true
     if ($config.Contains('env_key')) { throw 'Windows config unexpectedly uses env_key.' }
     if ($config.Contains('test_token')) { throw 'Plaintext API key leaked into Windows config.' }
 
-    $statusOutput = (& $entry status | Out-String)
+    $statusOutput = (& $entry status *>&1 | Out-String)
     if ($statusOutput -notmatch '当前模式：third-party') { throw 'Third-party status was not detected.' }
     if ($statusOutput -notmatch '当前用户可解密') { throw 'DPAPI decryption was not verified.' }
 
@@ -76,7 +76,7 @@ shell_tool = true
     if (-not $config.Contains("model_provider = 'openai'")) { throw 'Literal-string official provider was not restored.' }
     if (-not $config.Contains('model = "official-model"')) { throw 'Official model was not restored.' }
     if (-not $config.Contains('[model_providers.third_party.auth]')) { throw 'Managed provider block was unexpectedly removed.' }
-    $officialStatus = (& $entry status | Out-String)
+    $officialStatus = (& $entry status *>&1 | Out-String)
     if ($officialStatus -notmatch '当前模式：official') { throw 'Official status was not detected.' }
 
     Remove-Item Env:CODEX_RP_CONFIRMATION
@@ -85,7 +85,7 @@ shell_tool = true
     & $entry rotate-key
 
     $env:CODEX_RP_CONFIRMATION = 'RESTART_APP'
-    $restartOutput = (& $entry restart-app | Out-String)
+    $restartOutput = (& $entry restart-app *>&1 | Out-String)
     if ($restartOutput -notmatch '已模拟重启 ChatGPT') { throw 'Restart test mode did not run.' }
 
     $env:CODEX_RP_CONFIRMATION = 'ROLLBACK'
