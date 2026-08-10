@@ -65,6 +65,18 @@ case "$command_name" in
     ;;
 esac
 
+run_panel_action() {
+  local action_status
+
+  if "$@"; then
+    return 0
+  else
+    action_status=$?
+  fi
+  printf '操作失败（退出码 %d），已返回主菜单。\n' "$action_status" >&2
+  return 0
+}
+
 show_panel() {
   local choice
   while true; do
@@ -88,16 +100,16 @@ show_panel() {
       return 0
     fi
     case "$choice" in
-      1) panel_install ;;
-      2) "$script_dir/setup.sh" status ;;
-      3) "$script_dir/setup.sh" test ;;
-      4) "$script_dir/setup.sh" third-party ;;
-      5) "$script_dir/setup.sh" official ;;
-      6) "$script_dir/setup.sh" reconfigure ;;
-      7) "$script_dir/setup.sh" rotate-key ;;
-      8) "$script_dir/setup.sh" rollback ;;
+      1) run_panel_action panel_install ;;
+      2) run_panel_action "$script_dir/setup.sh" status ;;
+      3) run_panel_action "$script_dir/setup.sh" test ;;
+      4) run_panel_action "$script_dir/setup.sh" third-party ;;
+      5) run_panel_action "$script_dir/setup.sh" official ;;
+      6) run_panel_action "$script_dir/setup.sh" reconfigure ;;
+      7) run_panel_action "$script_dir/setup.sh" rotate-key ;;
+      8) run_panel_action "$script_dir/setup.sh" rollback ;;
       9) usage ;;
-      10) "$script_dir/setup.sh" codex ;;
+      10) run_panel_action "$script_dir/setup.sh" codex ;;
       0) return 0 ;;
       *) printf '无效选项，请输入 0 到 10。\n' >&2 ;;
     esac

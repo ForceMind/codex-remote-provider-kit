@@ -24,7 +24,7 @@ jobs:
         run: bash tests/test-provider-config.sh
       - name: Test command panel
         shell: bash
-        run: printf '0\n' | bash panel.sh
+        run: printf '2\n0\n' | bash panel.sh
       - name: Test global command launcher
         shell: bash
         run: bash tests/test-command-launcher.sh

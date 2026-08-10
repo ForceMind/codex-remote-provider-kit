@@ -70,6 +70,9 @@ cp -p "$state_file" "$work_dir/state"
 config_file="$CODEX_HOME_DIR/config.toml"
 profile_file="$CODEX_HOME_DIR/$PROVIDER_ID.config.toml"
 third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
+third_party_unit_name=${third_party_unit_file##*/}
+third_party_was_active='no'
+systemctl is-active "$third_party_unit_name" >/dev/null 2>&1 && third_party_was_active='yes'
 [[ -f "$config_file" ]] && cp -p "$config_file" "$work_dir/config"
 [[ -f "$profile_file" ]] && cp -p "$profile_file" "$work_dir/profile"
 [[ -f "$third_party_unit_file" ]] && cp -p "$third_party_unit_file" "$work_dir/unit"
@@ -104,7 +107,11 @@ if [[ "$key_only" == no ]]; then
     $0 == end { skip=0; next }
     !skip { print }
   ' "$config_file" > "$tmp_config"
-  set_remote_defaults "$tmp_config" "$PROVIDER_ID" "$model" "$reasoning"
+  if [[ "$third_party_was_active" == yes ]]; then
+    set_remote_defaults "$tmp_config" "$PROVIDER_ID" "$model" "$reasoning"
+  else
+    restore_remote_defaults "$tmp_config" "$BACKUP_DIR/config.toml"
+  fi
   cat >> "$tmp_config" <<EOF
 
 $begin_marker
@@ -132,12 +139,14 @@ fi
 # Reload generated units from the updated state without changing the selected mode.
 CODEX_RP_STATE_FILE="$state_file" CODEX_RP_SECRET_FILE="$secret_file" \
   "$script_dir/refresh-units.sh"
-third_party_unit_name=${third_party_unit_file##*/}
-if systemctl is-active "$third_party_unit_name" >/dev/null 2>&1; then
+if [[ "$third_party_was_active" == yes ]]; then
   systemctl restart "$third_party_unit_name"
   "$script_dir/status.sh" --full
 else
   printf '配置已更新；当前处于官方模式，切回第三方时生效。\n'
 fi
 trap - ERR
+if [[ "$key_only" == no ]]; then
+  printf '当前第三方配置：%s / %s / %s\n' "${base_url%/}" "$model" "$reasoning"
+fi
 printf '第三方供应商配置更新完成。\n'
