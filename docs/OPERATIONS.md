@@ -1,6 +1,35 @@
 # 日常运维手册
 
-以下命令默认在本仓库目录执行，并需要 root 权限。
+Linux 命令默认在本仓库目录执行并需要 root 权限；macOS/Windows 使用当前桌面
+用户运行 `codex-rp`，不要使用 sudo 或管理员账户替代实际登录 ChatGPT 的用户。
+
+## macOS/Windows 桌面 Remote 标准流程
+
+1. 在最新版 ChatGPT 桌面应用登录手机所用的同一账号和 workspace。
+2. 在 `Settings > Connections` 中启用 `Control this Mac/PC` 并用手机配对。
+3. 运行 `codex-rp install`，密钥只进入 Keychain 或 DPAPI。
+4. 运行 `codex-rp status`，确认三项默认配置和系统凭据存在。
+5. 明确运行 `codex-rp restart-app`；当前 Remote 会短暂断开，但不会注销或删除配对。
+6. 运行 `codex-rp test`，再从手机创建一个新会话验证。
+
+日常命令在两个桌面平台保持一致：
+
+```text
+codex-rp status
+codex-rp test
+codex-rp official
+codex-rp third-party
+codex-rp rotate-key
+codex-rp restart-app
+codex-rp rollback
+```
+
+切换命令本身不重启应用，避免无提示中断 Remote。配置只保证影响新任务；不要让
+手机和本地应用同时写入切换前仍活跃的同一会话。
+
+Windows 必须以实际登录 ChatGPT 的普通桌面用户运行；DPAPI 密文不能由另一用户或
+管理员账户代为解密。macOS 同样应使用实际桌面用户，以便 `auth.command` 访问正确
+Keychain。三项默认配置在两个平台都作为一次事务更新。
 
 ## 一键安装和统一入口
 
@@ -34,8 +63,9 @@ sudo ./setup.sh install
 codex-rp
 ```
 
-Remote 由 `codex-remote-provider.service` 在后台托管并开机自启，关闭面板不会
-停止服务。
+安装会创建第三方 `codex-remote-provider.service` 与官方
+`codex-remote-official.service`，并且只启用当前所选模式。关闭面板不会停止
+Remote；人工切换后的模式会跨系统重启保持。
 
 脚本会提示输入密钥，随后安装、启动并执行完整验证。日常管理也可以全部通过
 同一入口完成：
@@ -69,6 +99,9 @@ sudo systemctl status codex-remote-provider.service --no-pager
 sudo journalctl -u codex-remote-provider.service -n 100 --no-pager
 ```
 
+若当前处于官方模式，将上述 unit 名替换为
+`codex-remote-official.service`；`sudo ./status.sh` 会直接显示当前模式。
+
 粘贴日志到 Issue 或聊天前，必须删除令牌、主机名、IP、用户目录、会话 ID 和
 业务代码。不要运行会输出完整环境变量的命令。
 
@@ -87,9 +120,41 @@ sudo ./use-third-party.sh
 sudo ./status.sh --full
 ```
 
+切换脚本会刷新两个 unit、停止另一模式并修改开机启用状态。项目不执行自动
+故障转移。若目标服务启动失败，脚本会尝试恢复切换前的配置和服务模式。官方
+模式下运行 `status.sh --full` 也不会生成回复，以免意外消耗额度。
+
+## 从旧版本升级套件
+
+重新运行公开在线安装命令会替换 `/opt/codex-remote-provider-kit`，并备份旧目录。
+随后打开新版面板或运行：
+
+```bash
+sudo ./setup.sh install
+```
+
+检测到现有状态时，脚本不会重写初始备份或密钥，而是通过 `refresh-units.sh`
+刷新官方/第三方 unit 和 `codex-rp`，然后切回第三方模式并验证。
+
+第三方接口默认必须是 HTTPS。仅隔离的本机测试可通过命令行显式增加
+`--allow-http`；面向公网或局域网网关都不应使用明文 HTTP 传输密钥。
+
 ## 密钥轮换
 
-先在供应商后台生成新密钥，然后：
+先在供应商后台生成新密钥，然后从面板选择“仅修改第三方 API Key”，或运行：
+
+```bash
+codex-rp rotate-key
+```
+
+如需同时修改接口地址、模型或推理强度，运行：
+
+```bash
+codex-rp reconfigure
+```
+
+脚本会保留当前官方/第三方模式；第三方正在运行时会重启并执行完整验证，官方
+模式下只保存配置，等下次切回第三方时生效。也可以按传统方式手工轮换：
 
 ```bash
 sudoedit /etc/codex-remote-provider/provider.env
@@ -98,8 +163,8 @@ sudo systemctl restart codex-remote-provider.service
 sudo ./status.sh --full
 ```
 
-文件只保留一行 `<环境变量名>=<新密钥>`，不要加 `export`。确认新密钥正常后
-立即吊销旧密钥。
+文件只保留一行 `<环境变量名>="<新密钥>"`，不要加 `export`、命令替换或其他
+shell 语法。确认新密钥正常后立即吊销旧密钥。
 
 ## Codex 升级
 
@@ -130,4 +195,5 @@ sudo ./rollback.sh
 ```
 
 脚本会恢复备份、移除持久化密钥和自定义 unit，并恢复安装前旧服务的启用/运行
-状态。审计状态文件会保留，不含 API 密钥。
+状态。审计状态文件会移动到 `/var/lib/codex-remote-provider/audit/`，不含 API
+密钥；活动状态文件会被移走，所以回滚完成后可以直接重新安装。

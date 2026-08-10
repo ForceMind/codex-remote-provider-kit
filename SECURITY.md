@@ -4,11 +4,29 @@
 
 - 第三方或 OpenAI API 密钥、Bearer token、Cookie、登录缓存。
 - `/etc/codex-remote-provider/provider.env` 的内容。
+- macOS Keychain 或 Windows DPAPI 解密后的第三方令牌。
 - 完整进程环境、systemd manager environment、会话 JSONL 或未经脱敏的日志。
 - 服务器公网 IP、内部主机名、会话 ID 等不需要公开的运行信息。
 
 密钥只能在目标服务器上交互输入。GitHub Actions 会检查常见高熵密钥形式，
 但自动扫描不是绝对保证；提交前仍需人工检查 `git diff --cached`。
+
+安装器将密钥写成单行、双引号包围的 `EnvironmentFile`，状态检查会按允许字符
+安全解析该行，不会把文件作为 shell 脚本执行。调用接口时 Authorization header
+通过权限为 0600 的临时文件交给 curl，避免把密钥直接放进进程命令行。
+
+macOS 使用当前登录用户的 Keychain generic password；`config.toml` 只保存
+`/usr/bin/security` 的查询参数。Windows 将密钥用当前用户 DPAPI 加密，配置只保存
+受控解密助手和加密文件路径。两端都使用 Codex provider `auth.command`，不会把
+Bearer token 写入 TOML、启动参数或 Remote 配对数据。
+
+Windows 的 DPAPI 密文只能由加密它的同一 Windows 用户解密；不要用管理员账户替
+实际登录 ChatGPT 的桌面用户安装。状态检查只验证解密结果格式，不打印令牌。
+macOS 的 `/usr/bin/security` 与 Windows 解密助手都只在 Codex 请求认证时把令牌写到
+受控子进程的 stdout；不要把这些命令改成写日志或永久明文文件。
+
+桌面平台的 `restart-app` 必须由用户明确确认。它只重启 ChatGPT 应用以重新加载
+配置，不执行退出登录、不删除设备配对，也不清理 Codex 会话。
 
 ## 密钥泄露后的处理
 
@@ -18,6 +36,9 @@
 4. 执行 `sudo ./status.sh --full`。
 5. 如果密钥进入 Git 历史，除了吊销密钥，还要清理历史并检查所有 fork、构建
    日志和制品；仅删除最新文件不够。
+
+macOS/Windows 使用 `codex-rp rotate-key` 更新系统凭据，再执行 `restart-app` 和
+`test`。确认新密钥可用后立即吊销旧密钥；不要直接把明文密钥写进配置文件。
 
 ## 报告问题
 

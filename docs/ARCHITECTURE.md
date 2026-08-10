@@ -14,6 +14,24 @@
         └──────────────────────────────► 手机
 ```
 
+macOS/Windows 使用官方桌面 Remote 宿主：
+
+```text
+手机 ChatGPT Remote
+        │ 同一 ChatGPT 账号/workspace、官方设备配对与安全中继
+        ▼
+Mac/Windows ChatGPT 桌面应用中的 Codex app-server
+        │ 用户级 config.toml + provider auth.command
+        ├── macOS Keychain (/usr/bin/security)
+        └── Windows 当前用户 DPAPI (受控 PowerShell 助手)
+        ▼
+第三方 /v1/responses
+```
+
+桌面脚本不创建自己的公网监听器，也不替换 ChatGPT 登录。Remote 的账号、workspace、
+配对和消息通道仍完全由官方桌面应用管理；工具只改变新 Codex 任务读取的三项用户
+默认配置和第三方 provider 定义。
+
 模型列表检查走第三方 `/v1/models`。它只证明鉴权和模型目录端点可访问，不代表
 Responses 请求、流式事件格式或 Codex 工具调用一定兼容，所以 `status.sh --full`
 会分别验证三个层次。
@@ -41,16 +59,47 @@ Remote 的托管 app-server 是独立后台进程。安装器会同时设置用�
 不一定被托管 daemon 继承。人工切回官方时从安装前备份恢复这三项（原来不存在
 的项会被移除），再停止并重新启动 daemon，避免把第三方模型名带到官方 provider。
 
+macOS/Windows 不依赖 shell 环境变量给桌面应用传密钥。它们使用 Codex 官方配置
+支持的 `[model_providers.<id>.auth]`：认证命令只向 Codex stdout 返回令牌。该方式
+不能和 `env_key`、直接 bearer token 或 OpenAI auth 同时配置，所以不同平台会生成
+互斥的认证字段。
+
 ## systemd 设计
 
-新服务器使用独立的 `codex-remote-provider.service`：
+新的 Linux/systemd 服务器使用两个互斥的 unit：
 
-- `Type=oneshot` 与 Remote CLI 的后台 daemon 行为匹配；
-- `ExecStart` 调用 `remote-control start`，`ExecStop` 调用 `stop`；
-- 密钥只通过权限为 0600 的 `EnvironmentFile` 注入；
-- 安装前的旧 `codex.service` 状态会记录，回滚时恢复。
+- `codex-remote-provider.service` 加载 root-only 密钥并使用第三方三项默认配置；
+- `codex-remote-official.service` 不加载第三方密钥，使用安装前默认配置；
+- 两者都通过 `ExecStart` 调用 `remote-control start`，通过 `ExecStop` 调用 `stop`；
+- 切换时只启用一个 unit，因此最后一次人工选择会跨重启保持；
+- 安装前两个同名 unit 和旧 `codex.service` 的状态都会记录，回滚时恢复。
+
+当前 Remote CLI 会自行派生后台 daemon，因此 unit 使用 `Type=oneshot` 和
+`RemainAfterExit=yes`。这能让 systemd 管理启动、停止和开机模式，却不能让它直接
+监督 daemon 的实际 PID；daemon 在 unit 显示 active/exited 后异常退出时，仍需
+通过 `status.sh` 或外部监控发现。这是现阶段明确保留的限制。
 
 ## 回退设计
 
 回退是显式的，不是自动的：第三方故障时由管理员运行 `use-official.sh`，阅读
-额度警告并输入确认词。这样不会因为一次短暂超时就悄悄消耗官方额度。
+额度警告并输入 `y` 确认。这样不会因为一次短暂超时就悄悄消耗官方额度。切换过程
+会保存当前用户配置和两个 unit 的启用/运行状态；目标模式启动失败时会尝试恢复。
+
+## 安装与回滚事务
+
+安装器先生成并验证配置、profile、密钥文件、两个 unit、launcher 和状态文件的
+临时版本，再替换目标文件并启动服务。若替换后任一步失败，错误处理会尝试恢复
+原配置、原 unit、原 launcher 及原服务启用/运行状态；只有第三方服务成功启动后
+才写入活动 `state.env`。
+
+完整回滚恢复安装前文件与服务状态，删除持久化第三方密钥，并把不含密钥的
+`state.env` 移入 `audit/`。这样既保留审计依据，也不会阻止下一次安装。
+
+桌面平台也保留安装前完整配置和 profile，但日常官方/第三方切换只修改顶层
+`model_provider`、`model`、`model_reasoning_effort`，不会覆盖用户安装后新增的其他
+配置。三项默认值先在同目录临时文件中组合完成，再一次替换正式配置，避免只写入
+其中一部分。macOS 回滚删除 Keychain 条目；Windows 回滚先删除 DPAPI 密文，再移动
+不含密钥的审计状态。两端都不删除登录缓存、配对或 session。
+
+Windows 在线安装还分别保护程序目录、全局启动器和用户 PATH：启动器已有但缺少
+套件标记时直接拒绝覆盖；升级后续步骤失败时恢复旧目录、旧启动器和原 PATH。

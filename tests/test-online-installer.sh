@@ -34,4 +34,15 @@ backup_dir=$(find "$temp_dir" -maxdepth 1 -type d \
 [[ -n "$backup_dir" && -f "$backup_dir/test-marker" ]]
 grep -Fq '旧版本已备份到' "$temp_dir/second-install.log"
 
+mac_install_dir="$temp_dir/macos-installed-kit"
+CODEX_RP_TEST_PLATFORM=Darwin \
+CODEX_RP_ARCHIVE_URL="file://$archive_file" \
+CODEX_RP_INSTALL_DIR="$mac_install_dir" \
+CODEX_RP_NO_LAUNCH=1 \
+  sh "$repo_dir/install.sh" > "$temp_dir/macos-install.log"
+
+[[ -x "$mac_install_dir/platform/macos/codex-rp.sh" ]]
+grep -Fq '工具已安装到' "$temp_dir/macos-install.log"
+grep -Fq 'platform/macos/codex-rp.sh' "$temp_dir/macos-install.log"
+
 printf '在线安装器：通过\n'

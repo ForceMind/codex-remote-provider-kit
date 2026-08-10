@@ -1,18 +1,54 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 # shellcheck source=lib.sh
 source "$script_dir/lib.sh"
 
 ((EUID == 0)) || { printf '请以 root 身份运行\n' >&2; exit 1; }
-state_file='/var/lib/codex-remote-provider/state.env'
+state_file=${CODEX_RP_STATE_FILE:-/var/lib/codex-remote-provider/state.env}
 [[ -r "$state_file" ]] || { printf '缺少状态文件\n' >&2; exit 1; }
 # shellcheck disable=SC1090
 source "$state_file"
+third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
+official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-official.service}
+third_party_unit_name=${third_party_unit_file##*/}
+official_unit_name=${official_unit_file##*/}
+
+CODEX_RP_STATE_FILE="$state_file" "$script_dir/refresh-units.sh"
+config_file="$CODEX_HOME_DIR/config.toml"
+original_config=$(mktemp)
+cp -p "$config_file" "$original_config"
+cleanup() { rm -f "$original_config"; }
+trap cleanup EXIT
+
+third_party_enabled='no'
+third_party_active='no'
+official_enabled='no'
+official_active='no'
+systemctl is-enabled "$third_party_unit_name" >/dev/null 2>&1 && third_party_enabled='yes'
+systemctl is-active "$third_party_unit_name" >/dev/null 2>&1 && third_party_active='yes'
+systemctl is-enabled "$official_unit_name" >/dev/null 2>&1 && official_enabled='yes'
+systemctl is-active "$official_unit_name" >/dev/null 2>&1 && official_active='yes'
+
+handle_switch_error() {
+  local exit_status=$?
+  trap - ERR
+  set +e
+  install -m 600 "$original_config" "$config_file"
+  restore_remote_service_selection "$CODEX_BIN_PATH" \
+    "$third_party_unit_name" "$official_unit_name" \
+    "$third_party_enabled" "$third_party_active" \
+    "$official_enabled" "$official_active"
+  printf '切换失败；已尝试恢复切换前配置和服务模式。\n' >&2
+  exit "$exit_status"
+}
+trap handle_switch_error ERR
 
 set_remote_defaults "$CODEX_HOME_DIR/config.toml" "$PROVIDER_ID" "$MODEL" "$REASONING"
+systemctl --quiet disable --now "$official_unit_name" >/dev/null 2>&1 || true
 "$CODEX_BIN_PATH" remote-control stop --json >/dev/null 2>&1 || true
-systemctl restart codex-remote-provider.service
+systemctl --quiet enable --now "$third_party_unit_name"
+trap - ERR
 printf '第三方 Remote 服务已重启，当前 systemd 状态：\n'
-systemctl show codex-remote-provider.service -p ActiveState -p SubState -p Result --no-pager
+systemctl show "$third_party_unit_name" -p ActiveState -p SubState -p Result --no-pager
