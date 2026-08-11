@@ -103,3 +103,14 @@ macOS/Windows 不依赖 shell 环境变量给桌面应用传密钥。它们使�
 
 Windows 在线安装还分别保护程序目录、全局启动器和用户 PATH：启动器已有但缺少
 套件标记时直接拒绝覆盖；升级后续步骤失败时恢复旧目录、旧启动器和原 PATH。
+
+## macOS 快捷启动边界
+
+macOS 会在当前用户的 `~/Applications` 安装一个最小 `.app` bundle。Bundle 中只包含
+`Info.plist`、受管标记、本地 `.icns` 图标和两层启动脚本：第一层请 macOS 用
+Terminal 打开内置 `.command`，第二层执行已安装的 `codex-rp menu`。Bundle 不包含
+provider 配置、密钥、ChatGPT 登录数据或会话数据，也不在后台常驻。
+
+同名 `.app` 只有在包内受管标记完全匹配时才会被刷新。安装事务会记录安装前是否已有
+受管 bundle；后续失败或完整回滚时恢复原 bundle，否则只移除本次创建的入口。
+用户或其他应用创建的同名目录、符号链接和无标记 bundle 都不会被覆盖。

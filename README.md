@@ -20,6 +20,7 @@ workspace、设备配对和消息通道。
 - `use-third-party.sh`：人工切回第三方推理。
 - `rollback.sh`：恢复安装前配置并移除持久化密钥。
 - `platform/macos/`：macOS Keychain、配置切换和桌面应用管理入口。
+- `platform/macos/assets/`：macOS 快捷启动的 1024px 源图、多尺寸 `.icns` 和生成说明。
 - `platform/windows/`：Windows DPAPI、PowerShell 配置切换和桌面应用管理入口。
 - `docs/OPERATIONS.md`：日常启动、切换、升级和密钥轮换手册。
 - `docs/TROUBLESHOOTING.md`：按症状排查手机报错、接口错误和进程冲突。
@@ -182,15 +183,34 @@ sudo ./setup.sh install \
 
 ## macOS 安装与 Remote
 
+<p>
+  <img src="platform/macos/assets/codex-rp-icon-1024.png"
+       alt="Codex Remote Provider Kit macOS 应用图标" width="128">
+</p>
+
 macOS 使用与 Linux 相同的在线入口：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit/main/install.sh | sh
 ```
 
+安装过程使用当前桌面用户权限，即使
+`~/Library/Application Support/CodexRemoteProviderKit` 尚不存在也不会调用
+`sudo`。脚本保持兼容 macOS 系统自带的 Bash 3.2，不需要 Homebrew Bash
+或额外 Python 包。
+
 安装器会在缺少 Codex CLI 时调用 OpenAI 官方独立安装器，然后通过中文面板读取
 第三方参数。密钥保存在当前用户 Keychain，配置中的 `auth.command` 会调用
 `/usr/bin/security` 读取令牌；不会把密钥写入 TOML。
+首次打开面板还会创建
+`~/Applications/Codex Remote Provider Kit.app`，可从 Finder 或 Spotlight 双击，
+也可拖到 Dock。应用使用项目原创的终端箭头/远程连接图标，并内置完整
+16–1024 像素 `.icns` 尺寸。它只会打开 Terminal 中的中文管理面板，不会自动切换
+provider 或重启 ChatGPT。需要手工刷新快捷入口时运行：
+
+```bash
+codex-rp shortcut
+```
 
 先在最新版 ChatGPT 桌面应用中登录正确的账号/workspace，并在
 `Settings > Connections > Control this Mac` 完成手机配对。安装或切换 provider
@@ -204,6 +224,8 @@ codex-rp test
 
 `restart-app` 会要求输入确认词，因为重启应用会让 Remote 短暂断开。恢复后请在
 手机上新建会话，不要复用切换前仍有活跃写入者的会话。
+完整回滚会同时恢复或移除套件管理的 `~/.local/bin/codex-rp`，不会改动
+同目录中的其他命令；受管的 `.app` 快捷入口也会同步恢复或移除。
 
 ## Windows 原生安装与 Remote
 

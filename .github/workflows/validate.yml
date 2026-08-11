@@ -108,3 +108,21 @@ jobs:
       - name: Test Windows online installer
         shell: powershell
         run: ./tests/test-windows-installer.ps1
+
+  macos-platform:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scripts with macOS system Bash
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            /bin/bash -n "$file"
+          done < <(find . -type f -name '*.sh' -print0)
+      - name: Test macOS configuration lifecycle
+        shell: bash
+        run: /bin/bash tests/test-macos-platform.sh
+      - name: Test macOS online installer
+        shell: bash
+        run: /bin/bash tests/test-online-installer.sh

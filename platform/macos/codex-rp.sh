@@ -21,6 +21,7 @@ Codex Remote Provider Kit（macOS）
   official      恢复安装前的官方默认模型配置
   third-party   重新启用第三方模型配置
   rotate-key    更新 macOS Keychain 中的第三方密钥
+  shortcut      安装/刷新 Finder、Spotlight 和 Dock 可用的 .app 快捷入口
   restart-app   明确重启 ChatGPT 桌面应用以加载新配置
   rollback      恢复安装前配置并删除 Keychain 密钥
 
@@ -31,8 +32,9 @@ Codex Remote Provider Kit（macOS）
   --reasoning EFFORT   none/minimal/low/medium/high/xhigh（默认：high）
   --codex-bin PATH     指定 Codex CLI
 
-脚本只修改用户级 ~/.codex 配置和本用户的 macOS Keychain，不修改 ChatGPT
-登录、workspace、Remote 配对或会话历史。切换后请重启桌面应用并新建会话。
+脚本只修改用户级 ~/.codex 配置、本用户的 macOS Keychain 和套件管理的
+快捷启动入口，不修改 ChatGPT 登录、workspace、Remote 配对或会话历史。
+切换后请重启桌面应用并新建会话。
 EOF
 }
 
@@ -47,6 +49,8 @@ config_file="$codex_home/config.toml"
 security_bin=${CODEX_RP_SECURITY_BIN:-/usr/bin/security}
 launcher_file=${CODEX_RP_COMMAND_FILE:-$HOME/.local/bin/codex-rp}
 launcher_marker='# Managed by codex-remote-provider-kit:macos'
+app_launcher=${CODEX_RP_APP_BUNDLE:-$HOME/Applications/Codex Remote Provider Kit.app}
+app_launcher_marker='Managed by codex-remote-provider-kit:macos-app'
 
 make_temp() {
   mktemp "${TMPDIR:-/tmp}/codex-rp.XXXXXX"
@@ -308,6 +312,105 @@ check_launcher_target() {
   fi
 }
 
+app_launcher_is_managed() {
+  [[ -f "$app_launcher/Contents/Resources/.codex-rp-managed" ]] \
+    && grep -Fxq "$app_launcher_marker" \
+      "$app_launcher/Contents/Resources/.codex-rp-managed"
+}
+
+check_app_launcher_target() {
+  case "$app_launcher" in
+    /*/*.app) ;;
+    *) die 'macOS 快捷入口必须是绝对路径下的 .app 目录' ;;
+  esac
+  [[ ! -L "$app_launcher" ]] || die "$app_launcher 是符号链接，已拒绝覆盖"
+  if [[ -e "$app_launcher" ]] && ! app_launcher_is_managed; then
+    die "$app_launcher 已存在，且不由本套件管理"
+  fi
+}
+
+ensure_app_launcher() {
+  local app_parent temp_bundle old_bundle executable_file resources_dir icon_source
+  check_app_launcher_target
+  icon_source="$script_dir/assets/codex-rp.icns"
+  [[ -f "$icon_source" ]] || die "macOS 图标资源缺失：$icon_source"
+  app_parent=$(dirname "$app_launcher")
+  mkdir -p "$app_parent"
+  temp_bundle=$(mktemp -d "$app_parent/.codex-rp-app.XXXXXX")
+  old_bundle=''
+  executable_file="$temp_bundle/Contents/MacOS/codex-rp-launcher"
+  resources_dir="$temp_bundle/Contents/Resources"
+  mkdir -p "$(dirname "$executable_file")" "$resources_dir"
+
+  cat > "$temp_bundle/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>Codex Remote Provider Kit</string>
+  <key>CFBundleExecutable</key>
+  <string>codex-rp-launcher</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.forcemind.codex-remote-provider-kit</string>
+  <key>CFBundleIconFile</key>
+  <string>codex-rp.icns</string>
+  <key>CFBundleName</key>
+  <string>Codex Remote Provider Kit</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+</dict>
+</plist>
+EOF
+  cp -p "$icon_source" "$resources_dir/codex-rp.icns"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'exec %q menu\n' "$script_dir/codex-rp.sh"
+  } > "$resources_dir/launch.command"
+  printf '%s\n' "$app_launcher_marker" > "$resources_dir/.codex-rp-managed"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'command_file=$(cd -- "$(dirname -- "$0")/../Resources" && pwd -P)/launch.command\n'
+    printf 'exec /usr/bin/open -a Terminal "$command_file"\n'
+  } > "$executable_file"
+  chmod 755 "$executable_file" "$resources_dir/launch.command"
+  chmod 644 "$temp_bundle/Contents/Info.plist" \
+    "$resources_dir/.codex-rp-managed" "$resources_dir/codex-rp.icns"
+
+  if [[ -e "$app_launcher" ]]; then
+    [[ ! -L "$app_launcher" ]] && app_launcher_is_managed || {
+      rm -rf "$temp_bundle"
+      die "$app_launcher 在刷新前被替换为非套件内容，已取消"
+    }
+    old_bundle="$app_parent/.codex-rp-app.old.$$"
+    [[ ! -e "$old_bundle" ]] || {
+      rm -rf "$temp_bundle"
+      die '发现残留的 macOS 快捷入口备份'
+    }
+    mv "$app_launcher" "$old_bundle"
+  fi
+  if ! mv "$temp_bundle" "$app_launcher"; then
+    [[ -z "$old_bundle" || ! -e "$old_bundle" ]] || mv "$old_bundle" "$app_launcher"
+    rm -rf "$temp_bundle"
+    return 1
+  fi
+  [[ -z "$old_bundle" || ! -e "$old_bundle" ]] || rm -rf "$old_bundle"
+  touch "$app_launcher"
+}
+
+install_shortcuts() {
+  ensure_launcher
+  ensure_app_launcher
+  printf '快捷启动已安装：%s\n' "$app_launcher"
+  printf '可从 Finder/Spotlight 打开，或拖到 Dock；终端命令仍为 codex-rp。\n'
+}
+
 find_codex() {
   local override=${1-}
   local candidate
@@ -348,6 +451,7 @@ install_provider() {
   local staging_dir source_config stripped_config new_config profile_temp keychain_service
   local config_existed='no' profile_existed='no' profile_file escaped_security
   local launcher_existed='no' launcher_changed='no' keychain_written='no'
+  local app_launcher_existed='no' app_launcher_changed='no'
 
   while (($#)); do
     case "$1" in
@@ -376,6 +480,7 @@ install_provider() {
 
   ensure_codex "$codex_override"
   check_launcher_target
+  check_app_launcher_target
   keychain_service="codex-remote-provider-kit:$provider_id"
   if "$security_bin" find-generic-password -s "$keychain_service" >/dev/null 2>&1; then
     die "Keychain 已存在同名条目：$keychain_service；请先确认或回滚"
@@ -409,6 +514,10 @@ install_provider() {
   if [[ -f "$launcher_file" ]]; then
     launcher_existed='yes'
     cp -p "$launcher_file" "$staging_dir/backup/codex-rp-launcher"
+  fi
+  if [[ -d "$app_launcher" ]]; then
+    app_launcher_existed='yes'
+    cp -pR "$app_launcher" "$staging_dir/backup/codex-rp-app"
   fi
 
   source_config=$(make_temp)
@@ -462,6 +571,8 @@ EOF
   state_put "$staging_dir" codex_bin "$codex_bin"
   state_put "$staging_dir" config_existed "$config_existed"
   state_put "$staging_dir" profile_existed "$profile_existed"
+  state_put "$staging_dir" launcher_existed "$launcher_existed"
+  state_put "$staging_dir" app_launcher_existed "$app_launcher_existed"
 
   install_failed='yes'
   rollback_partial_install() {
@@ -494,6 +605,21 @@ EOF
           recovery_failed='yes'
         fi
       fi
+      if [[ "$app_launcher_changed" == yes ]]; then
+        if [[ "$app_launcher_existed" == yes ]]; then
+          if [[ -e "$app_launcher" ]] && ! app_launcher_is_managed; then
+            recovery_failed='yes'
+          else
+            rm -rf "$app_launcher"
+            cp -pR "$staging_dir/backup/codex-rp-app" "$app_launcher" \
+              || recovery_failed='yes'
+          fi
+        elif app_launcher_is_managed; then
+          rm -rf "$app_launcher" || recovery_failed='yes'
+        else
+          recovery_failed='yes'
+        fi
+      fi
       rm -f "$source_config" "$stripped_config" "$new_config" "$profile_temp"
       if [[ "$recovery_failed" == no ]]; then
         rm -rf "$staging_dir"
@@ -513,6 +639,8 @@ EOF
   install -m 600 "$profile_temp" "$profile_file"
   ensure_launcher
   launcher_changed='yes'
+  ensure_app_launcher
+  app_launcher_changed='yes'
   mv "$staging_dir" "$active_dir"
   install_failed='no'
   trap - ERR
@@ -523,6 +651,7 @@ EOF
   printf '密钥已保存到本用户 macOS Keychain，未写入 config.toml。\n'
   printf '账号、workspace、Remote 配对和会话均未修改。\n'
   printf '请运行 codex-rp restart-app，再从手机新建会话验证。\n'
+  printf '也可从 Finder/Spotlight 打开：%s\n' "$app_launcher"
 }
 
 use_third_party() {
@@ -644,13 +773,31 @@ restart_app() {
 }
 
 rollback_all() {
-  local confirmation config_existed profile_existed timestamp target
+  local confirmation config_existed profile_existed launcher_existed
+  local app_launcher_existed timestamp target
   load_state
   printf '回滚会恢复安装前配置并删除本套件的 Keychain 密钥。请输入 ROLLBACK 继续：'
   read -r confirmation
   [[ "$confirmation" == ROLLBACK ]] || die '操作已取消'
   state_get config_existed; config_existed=$CODEX_RP_STATE_VALUE
   state_get profile_existed; profile_existed=$CODEX_RP_STATE_VALUE
+  launcher_existed='no'
+  if state_get launcher_existed; then
+    launcher_existed=$CODEX_RP_STATE_VALUE
+  elif [[ -f "$active_dir/backup/codex-rp-launcher" ]]; then
+    # 兼容未记录 launcher_existed 的早期 macOS 安装。
+    launcher_existed='yes'
+  fi
+  app_launcher_existed='no'
+  if state_get app_launcher_existed; then
+    app_launcher_existed=$CODEX_RP_STATE_VALUE
+  elif [[ -d "$active_dir/backup/codex-rp-app" ]]; then
+    app_launcher_existed='yes'
+  fi
+  if [[ "$app_launcher_existed" == yes && -e "$app_launcher" ]] \
+      && ! app_launcher_is_managed; then
+    die "$app_launcher 已被替换为非套件内容，已拒绝覆盖"
+  fi
   if [[ "$config_existed" == yes ]]; then
     cp -p "$active_dir/backup/config.toml" "$config_file"
   else
@@ -660,6 +807,19 @@ rollback_all() {
     cp -p "$active_dir/backup/profile.config.toml" "$profile_file"
   else
     rm -f "$profile_file"
+  fi
+  if [[ "$launcher_existed" == yes ]]; then
+    cp -p "$active_dir/backup/codex-rp-launcher" "$launcher_file"
+  elif [[ -f "$launcher_file" ]] && grep -Fxq "$launcher_marker" "$launcher_file"; then
+    rm -f "$launcher_file"
+  fi
+  if [[ "$app_launcher_existed" == yes ]]; then
+    if [[ -e "$app_launcher" ]]; then
+      rm -rf "$app_launcher"
+    fi
+    cp -pR "$active_dir/backup/codex-rp-app" "$app_launcher"
+  elif app_launcher_is_managed; then
+    rm -rf "$app_launcher"
   fi
   "$security_bin" delete-generic-password -s "$keychain_service" >/dev/null 2>&1 || true
   mkdir -p "$audit_dir"
@@ -672,11 +832,13 @@ rollback_all() {
 show_menu() {
   local choice
   ensure_launcher
+  ensure_app_launcher
   while true; do
     printf '\nCodex Remote Provider Kit（macOS）\n'
     printf '1) 安装第三方 provider\n2) 查看状态\n3) 完整测试\n'
     printf '4) 切换第三方\n5) 切换官方\n6) 轮换密钥\n'
-    printf '7) 重启 ChatGPT 应用\n8) 完整回滚\n0) 退出\n请选择：'
+    printf '7) 重启 ChatGPT 应用\n8) 完整回滚\n'
+    printf '9) 安装/刷新 Mac 快捷启动\n0) 退出\n请选择：'
     read -r choice || return 0
     case "$choice" in
       1) install_provider ;;
@@ -687,6 +849,7 @@ show_menu() {
       6) rotate_key ;;
       7) restart_app ;;
       8) rollback_all ;;
+      9) install_shortcuts ;;
       0) return 0 ;;
       *) printf '无效选项。\n' >&2 ;;
     esac
@@ -703,6 +866,7 @@ case "$command_name" in
   official) (($# == 0)) || die 'official 不接受参数'; use_official ;;
   third-party) (($# == 0)) || die 'third-party 不接受参数'; use_third_party ;;
   rotate-key) (($# == 0)) || die 'rotate-key 不接受参数'; rotate_key ;;
+  shortcut) (($# == 0)) || die 'shortcut 不接受参数'; install_shortcuts ;;
   restart-app) (($# == 0)) || die 'restart-app 不接受参数'; restart_app ;;
   rollback) (($# == 0)) || die 'rollback 不接受参数'; rollback_all ;;
   help|-h|--help) usage ;;

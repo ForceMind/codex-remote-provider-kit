@@ -15,6 +15,17 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 应用，并与手机登录同一账号/workspace；移动端 Remote 配对需要从桌面应用的
 `Settings > Connections` 开始，不能用本工具替代官方配对流程。
 
+## macOS 快捷启动图标缺失或无法打开
+
+运行 `codex-rp shortcut` 重建
+`~/Applications/Codex Remote Provider Kit.app`。该入口会打开 Terminal 并运行管理
+面板。若目标路径
+已有不受本套件管理的同名 `.app`，脚本会拒绝覆盖；请先自行改名或移动该应用。
+
+如果快捷入口可以打开但 Finder/Dock 仍显示旧图标，先运行 `codex-rp shortcut`，
+再把 Dock 中的旧图标移除并从 `~/Applications` 重新拖入。脚本在原子替换 bundle 后会
+更新其修改时间，但 macOS 的 Dock 图标缓存可能仍需重新添加才会刷新。
+
 ## macOS/Windows 切换后仍使用旧 provider
 
 桌面切换默认不会自动关闭 ChatGPT。运行 `codex-rp restart-app`，确认短暂断开后

@@ -33,7 +33,14 @@ case "$install_dir" in
 esac
 install_parent=$(dirname "$install_dir")
 
-if [ "$(id -u)" -eq 0 ] || { [ -d "$install_parent" ] && [ -w "$install_parent" ]; }; then
+permission_probe=$install_parent
+while [ ! -d "$permission_probe" ]; do
+  next_probe=$(dirname "$permission_probe")
+  [ "$next_probe" != "$permission_probe" ] || break
+  permission_probe=$next_probe
+done
+
+if [ "$(id -u)" -eq 0 ] || [ -w "$permission_probe" ]; then
   run_as_root=''
 else
   command -v sudo >/dev/null 2>&1 || die '需要 root 权限，但系统中没有 sudo'

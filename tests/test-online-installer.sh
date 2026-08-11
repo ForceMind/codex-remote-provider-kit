@@ -34,11 +34,22 @@ backup_dir=$(find "$temp_dir" -maxdepth 1 -type d \
 [[ -n "$backup_dir" && -f "$backup_dir/test-marker" ]]
 grep -Fq '旧版本已备份到' "$temp_dir/second-install.log"
 
-mac_install_dir="$temp_dir/macos-installed-kit"
+mock_bin="$temp_dir/mock-bin"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/sudo" <<'EOF'
+#!/bin/sh
+printf 'macOS 用户目录安装不应调用 sudo\n' >&2
+exit 97
+EOF
+chmod 755 "$mock_bin/sudo"
+
+# 模拟全新 Mac：CodexRemoteProviderKit 这一级目录尚不存在。
+mac_install_dir="$temp_dir/macos-home/Library/Application Support/CodexRemoteProviderKit/app"
 CODEX_RP_TEST_PLATFORM=Darwin \
 CODEX_RP_ARCHIVE_URL="file://$archive_file" \
 CODEX_RP_INSTALL_DIR="$mac_install_dir" \
 CODEX_RP_NO_LAUNCH=1 \
+PATH="$mock_bin:$PATH" \
   sh "$repo_dir/install.sh" > "$temp_dir/macos-install.log"
 
 [[ -x "$mac_install_dir/platform/macos/codex-rp.sh" ]]
