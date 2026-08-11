@@ -212,14 +212,14 @@ macOS 使用与 Linux 相同的在线入口：
 curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit/main/install.sh | sh
 ```
 
-### 旧版 Keychain 安装失败后的复测
+### 安装、升级与旧版故障恢复
 
 如果上次在输入密钥后看到 `add-generic-password` 的 Usage，旧版安装事务已经恢复
 原配置并删除新建的 Keychain 条目。复测时需要重新运行上面的在线安装命令，让
 `~/Library/Application Support/CodexRemoteProviderKit/app` 更新到最新版；只运行
 旧的 `codex-rp install` 不会更新脚本自身。
 
-更新后按以下顺序测试：
+第一次安装或旧版安装失败后，按以下顺序操作：
 
 1. 在 CC Switch 中明确切换到 OpenAI 官方配置，并保持 ChatGPT 登录有效。
 2. 在中文面板选择 `1`。脚本会先检查官方 provider、ChatGPT 登录和命名冲突。
@@ -227,6 +227,14 @@ curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit
 4. 安装成功或失败后应自动回到主菜单，不需要重新打开 Terminal。
 5. 依次选择 `2` 查看状态、`7` 重启 ChatGPT 应用、`3` 完成真实调用测试。
 6. 从手机新建会话验证；不要继续使用切换前仍有活跃写入者的会话。
+
+如果只是把已经成功安装的工具升级到最新版，重新运行在线安装命令即可；安装器会
+备份并替换程序目录，同时保留独立存放的活动配置和 Keychain 凭据。进入面板后不要
+再次选择 `1`，直接运行状态检查或日常操作。
+
+本流程已在 macOS 真机完成端到端验证，包括在线升级、中文菜单、CC Switch 外部
+provider 拦截、官方状态安装、Keychain 凭据读取、菜单自动返回和第三方 Remote
+实际使用。外部 provider 拦截发生在密钥输入之前，不会覆盖 CC Switch 当前配置。
 
 安装成功后，中文快捷入口应位于
 `~/Applications/Codex 远程模型服务工具.app`。如果 Finder 或 Dock 仍显示旧英文名称
@@ -391,7 +399,8 @@ sudo ./rollback.sh
   所选模式，但不能直接监督 daemon 的实际 PID。应结合 `status.sh` 做可用性检查。
 - OpenAI 官方支持 macOS/Windows 桌面应用作为 Remote 宿主，也支持自定义 provider
   的命令式认证；但官方文档没有承诺每个第三方 Responses 网关都兼容桌面 Remote。
-  两个平台发布前仍需在真实设备上执行 `status`、`test` 和手机新会话验证。
+  macOS 当前流程已通过真机验收；Windows 以及后续 Codex/ChatGPT 大版本升级仍需在
+  真实设备上重新执行 `status`、`test` 和手机新会话验证。
 
 ## 官方参考
 

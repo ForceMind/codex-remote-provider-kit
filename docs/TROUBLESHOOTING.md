@@ -35,9 +35,6 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 作为 Keychain account，并通过标准输入写入密钥，避免把密钥放进进程命令行。安装
 失败后的自动回滚不会保留新建凭据或部分 provider 配置，因此不需要先手工回滚。
 
-如果当前验证的是尚未合并到 `main` 的修复分支，应通过安装器的 `CODEX_RP_REF`
-明确指定该分支；不要一边运行 `main` 的代码，一边按修复分支文档判断结果。
-
 必须以实际登录 ChatGPT 的桌面用户在普通 Terminal 中运行，不要用 `sudo`。如果系统
 拒绝 Keychain 交互，请先确认登录钥匙串已经解锁，再重新执行安装。
 
