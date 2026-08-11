@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+((EUID == 0)) || {
+  printf 'test-legacy-session-upgrade.sh must run as root\n' >&2
+  exit 1
+}
+
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 # shellcheck source=../lib.sh
 source "$repo_dir/lib.sh"

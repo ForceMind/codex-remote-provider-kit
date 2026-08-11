@@ -54,7 +54,7 @@ jobs:
             bash tests/test-session-continuity.sh
       - name: Test legacy session provider upgrade
         shell: bash
-        run: bash tests/test-legacy-session-upgrade.sh
+        run: sudo -E bash tests/test-legacy-session-upgrade.sh
       - name: Test provider installation transaction
         shell: bash
         run: sudo -E bash tests/test-install-provider.sh
