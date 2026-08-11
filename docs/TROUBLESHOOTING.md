@@ -29,9 +29,14 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 ## macOS 写入 Keychain 时显示 `add-generic-password` Usage
 
 旧版 macOS 安装器未向 `/usr/bin/security` 提供必需的 account 参数，会在输入密钥后
-只显示 `add-generic-password` 用法并回滚。更新套件后重新运行 `codex-rp install`；
-新版会同时使用 provider ID 作为 Keychain account，并通过标准输入写入密钥，避免把
-密钥放进进程命令行。安装失败后的自动回滚不会保留新建凭据或部分 provider 配置。
+只显示 `add-generic-password` 用法并回滚。必须先重新运行 README 中的在线安装命令
+刷新已安装的工具目录，再从新版中文面板选择 `1`；直接调用旧的
+`codex-rp install` 不会更新脚本自身，可能重复同一错误。新版会同时使用 provider ID
+作为 Keychain account，并通过标准输入写入密钥，避免把密钥放进进程命令行。安装
+失败后的自动回滚不会保留新建凭据或部分 provider 配置，因此不需要先手工回滚。
+
+如果当前验证的是尚未合并到 `main` 的修复分支，应通过安装器的 `CODEX_RP_REF`
+明确指定该分支；不要一边运行 `main` 的代码，一边按修复分支文档判断结果。
 
 必须以实际登录 ChatGPT 的桌面用户在普通 Terminal 中运行，不要用 `sudo`。如果系统
 拒绝 Keychain 交互，请先确认登录钥匙串已经解锁，再重新执行安装。
