@@ -1,7 +1,7 @@
 # macOS 图标资源
 
 - `codex-rp-icon-1024.png`：用于维护和再生成的 1024×1024 源图。
-- `codex-rp.icns`：安装到 `Codex Remote Provider Kit.app` 的生产图标，内含
+- `codex-rp.icns`：安装到 `Codex 远程模型服务工具.app` 的生产图标，内含
   16、32、64、128、256、512 和 1024 像素 PNG 块。
 
 图标由 OpenAI 内置图像生成工具为本项目原创生成，未使用 OpenAI、ChatGPT、

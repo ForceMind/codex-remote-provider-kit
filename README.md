@@ -203,7 +203,7 @@ curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit
 第三方参数。密钥保存在当前用户 Keychain，配置中的 `auth.command` 会调用
 `/usr/bin/security` 读取令牌；不会把密钥写入 TOML。
 首次打开面板还会创建
-`~/Applications/Codex Remote Provider Kit.app`，可从 Finder 或 Spotlight 双击，
+`~/Applications/Codex 远程模型服务工具.app`，可从 Finder 或 Spotlight 直接双击，
 也可拖到 Dock。应用使用项目原创的终端箭头/远程连接图标，并内置完整
 16–1024 像素 `.icns` 尺寸。它只会打开 Terminal 中的中文管理面板，不会自动切换
 provider 或重启 ChatGPT。需要手工刷新快捷入口时运行：
@@ -211,6 +211,9 @@ provider 或重启 ChatGPT。需要手工刷新快捷入口时运行：
 ```bash
 codex-rp shortcut
 ```
+
+升级时，旧的受管入口 `Codex Remote Provider Kit.app` 会安全迁移为中文文件名；
+同名但不受本套件管理的应用不会被改动。
 
 先在最新版 ChatGPT 桌面应用中登录正确的账号/workspace，并在
 `Settings > Connections > Control this Mac` 完成手机配对。安装或切换 provider

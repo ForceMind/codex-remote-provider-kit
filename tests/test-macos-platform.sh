@@ -23,22 +23,29 @@ set -euo pipefail
 command_name=${1-}
 shift || true
 case "$command_name" in
+  -i)
+    IFS= read -r command_line
+    [[ "$command_line" == add-generic-password\ -U\ -a\ third_party\ -s\ codex-remote-provider-kit:third_party\ -w\ * ]]
+    value=${command_line##* -w }
+    [[ -n "$value" ]]
+    printf '%s' "$value" > "$MOCK_KEYCHAIN_FILE"
+    chmod 600 "$MOCK_KEYCHAIN_FILE"
+    ;;
   find-generic-password)
+    [[ " $* " == *' -a third_party '* ]]
+    [[ " $* " == *' -s codex-remote-provider-kit:third_party '* ]]
     [[ -f "$MOCK_KEYCHAIN_FILE" ]] || exit 44
     if [[ " $* " == *' -w '* ]]; then
       cat "$MOCK_KEYCHAIN_FILE"
     fi
     ;;
   add-generic-password)
-    value=''
-    while (($#)); do
-      if [[ $1 == -w ]]; then value=${2:?}; shift 2; else shift; fi
-    done
-    [[ -n "$value" ]]
-    printf '%s' "$value" > "$MOCK_KEYCHAIN_FILE"
-    chmod 600 "$MOCK_KEYCHAIN_FILE"
+    printf '密钥不应通过 security 命令行参数写入\n' >&2
+    exit 2
     ;;
   delete-generic-password)
+    [[ " $* " == *' -a third_party '* ]]
+    [[ " $* " == *' -s codex-remote-provider-kit:third_party '* ]]
     rm -f "$MOCK_KEYCHAIN_FILE"
     ;;
   *) exit 2 ;;
@@ -96,7 +103,6 @@ common_env=(
   CODEX_HOME="$test_dir/home/.codex"
   CODEX_RP_DATA_DIR="$test_dir/data"
   CODEX_RP_COMMAND_FILE="$test_dir/bin/codex-rp"
-  CODEX_RP_APP_BUNDLE="$test_dir/home/Applications/Codex Remote Provider Kit.app"
   CODEX_RP_SECURITY_BIN="$mock_bin/security"
   CODEX_RP_TEST_PLATFORM=Darwin
   CODEX_RP_SKIP_CODEX_INSTALL=1
@@ -120,13 +126,15 @@ env "${common_env[@]}" THIRD_PARTY_API_KEY='test_token' \
     --codex-bin "$mock_codex" > "$test_dir/install.log"
 
 [[ -x "$test_dir/bin/codex-rp" ]]
-app_bundle="$test_dir/home/Applications/Codex Remote Provider Kit.app"
+app_bundle="$test_dir/home/Applications/Codex 远程模型服务工具.app"
+legacy_app_bundle="$test_dir/home/Applications/Codex Remote Provider Kit.app"
 [[ -x "$app_bundle/Contents/MacOS/codex-rp-launcher" ]]
 /bin/bash -n "$app_bundle/Contents/MacOS/codex-rp-launcher"
 /bin/bash -n "$app_bundle/Contents/Resources/launch.command"
 grep -Fxq 'Managed by codex-remote-provider-kit:macos-app' \
   "$app_bundle/Contents/Resources/.codex-rp-managed"
 grep -Fq 'com.forcemind.codex-remote-provider-kit' "$app_bundle/Contents/Info.plist"
+grep -Fq '<string>Codex 远程模型服务工具</string>' "$app_bundle/Contents/Info.plist"
 grep -Fq '<string>codex-rp.icns</string>' "$app_bundle/Contents/Info.plist"
 cmp -s "$repo_dir/platform/macos/assets/codex-rp.icns" \
   "$app_bundle/Contents/Resources/codex-rp.icns"
@@ -149,16 +157,23 @@ grep -Fxq 'model_reasoning_effort = "high"' "$config_file"
 grep -Fxq '[model_providers.third_party]' "$config_file"
 grep -Fxq 'base_url = "https://gateway.test/v1"' "$config_file"
 grep -Fxq "command = \"$mock_bin/security\"" "$config_file"
-grep -Fxq 'args = ["find-generic-password", "-s", "codex-remote-provider-kit:third_party", "-w"]' "$config_file"
+grep -Fxq 'args = ["find-generic-password", "-a", "third_party", "-s", "codex-remote-provider-kit:third_party", "-w"]' "$config_file"
 ! grep -Fq 'env_key' "$config_file"
 ! grep -Fq 'test_token' "$config_file"
+grep -Fxq 'third_party' "$test_dir/data/active/keychain_account"
 env "${common_env[@]}" "$test_dir/bin/codex-rp" help > "$test_dir/launcher-help.log"
-grep -Fq 'Codex Remote Provider Kit（macOS）' "$test_dir/launcher-help.log"
+grep -Fq 'Codex 远程模型服务工具（macOS）' "$test_dir/launcher-help.log"
 
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status \
   > "$test_dir/status-third.log"
 grep -Fq '当前模式：third-party' "$test_dir/status-third.log"
 grep -Fq 'ChatGPT 桌面应用：运行中' "$test_dir/status-third.log"
+
+printf '2\n0\n' | env "${common_env[@]}" \
+  bash "$repo_dir/platform/macos/codex-rp.sh" menu \
+  > "$test_dir/menu-success.log" 2>&1
+[[ $(grep -Fc 'Codex 远程模型服务工具（macOS）' "$test_dir/menu-success.log") -eq 2 ]]
+grep -Fq '操作完成，已返回主菜单。' "$test_dir/menu-success.log"
 
 printf 'y\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" official > "$test_dir/official.log"
@@ -186,9 +201,19 @@ cmp -s "$config_file" "$original_config"
 [[ ! -e "$app_bundle" ]]
 find "$test_dir/data/audit" -maxdepth 1 -type d -name 'state-*' | grep -q .
 
-printf '0\n' | env "${common_env[@]}" \
-  bash "$repo_dir/panel.sh" > "$test_dir/panel.log"
-grep -Fq 'Codex Remote Provider Kit（macOS）' "$test_dir/panel.log"
+mkdir -p "$legacy_app_bundle/Contents/Resources"
+printf 'Managed by codex-remote-provider-kit:macos-app\n' \
+  > "$legacy_app_bundle/Contents/Resources/.codex-rp-managed"
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" shortcut \
+  > "$test_dir/migrate-shortcut.log"
+[[ ! -e "$legacy_app_bundle" ]]
+[[ -x "$app_bundle/Contents/MacOS/codex-rp-launcher" ]]
+grep -Fq 'Codex 远程模型服务工具.app' "$test_dir/migrate-shortcut.log"
+
+printf '2\n0\n' | env "${common_env[@]}" \
+  bash "$repo_dir/panel.sh" > "$test_dir/panel.log" 2>&1
+[[ $(grep -Fc 'Codex 远程模型服务工具（macOS）' "$test_dir/panel.log") -eq 2 ]]
+grep -Fq '操作失败，已返回主菜单。' "$test_dir/panel.log"
 [[ -x "$test_dir/bin/codex-rp" ]]
 [[ -x "$app_bundle/Contents/MacOS/codex-rp-launcher" ]]
 

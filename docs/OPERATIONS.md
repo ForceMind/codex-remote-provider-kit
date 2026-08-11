@@ -24,12 +24,13 @@ codex-rp restart-app
 codex-rp rollback
 ```
 
-macOS 另外安装 `~/Applications/Codex Remote Provider Kit.app`。可从 Finder、
+macOS 另外安装 `~/Applications/Codex 远程模型服务工具.app`。可从 Finder、
 Spotlight 或 Dock 启动，效果与在终端运行 `codex-rp` 相同。快捷入口只打开
 管理面板，不自动重启 ChatGPT 或改变当前 provider。升级后可运行
 `codex-rp shortcut` 手工刷新；完整回滚会恢复或移除该受管入口。
 每次刷新都会从已安装套件的 `platform/macos/assets/codex-rp.icns` 复制图标，
 不会在运行时下载资源。
+刷新时会把旧的受管英文 `.app` 迁移为中文文件名，不会改动不受管的同名应用。
 
 切换命令本身不重启应用，避免无提示中断 Remote。配置只保证影响新任务；不要让
 手机和本地应用同时写入切换前仍活跃的同一会话。

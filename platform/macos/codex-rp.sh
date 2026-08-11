@@ -8,7 +8,7 @@ die() { printf '错误：%s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Codex Remote Provider Kit（macOS）
+Codex 远程模型服务工具（macOS）
 
 用法：
   codex-rp [命令] [安装选项]
@@ -49,7 +49,13 @@ config_file="$codex_home/config.toml"
 security_bin=${CODEX_RP_SECURITY_BIN:-/usr/bin/security}
 launcher_file=${CODEX_RP_COMMAND_FILE:-$HOME/.local/bin/codex-rp}
 launcher_marker='# Managed by codex-remote-provider-kit:macos'
-app_launcher=${CODEX_RP_APP_BUNDLE:-$HOME/Applications/Codex Remote Provider Kit.app}
+legacy_app_launcher=''
+if [[ -n ${CODEX_RP_APP_BUNDLE+x} ]]; then
+  app_launcher=$CODEX_RP_APP_BUNDLE
+else
+  app_launcher="$HOME/Applications/Codex 远程模型服务工具.app"
+  legacy_app_launcher="$HOME/Applications/Codex Remote Provider Kit.app"
+fi
 app_launcher_marker='Managed by codex-remote-provider-kit:macos-app'
 
 make_temp() {
@@ -280,8 +286,22 @@ load_state() {
   state_get reasoning || die '状态缺少 reasoning'; reasoning=$CODEX_RP_STATE_VALUE
   state_get base_url || die '状态缺少 base_url'; base_url=$CODEX_RP_STATE_VALUE
   state_get keychain_service || die '状态缺少 keychain_service'; keychain_service=$CODEX_RP_STATE_VALUE
+  if state_get keychain_account; then
+    keychain_account=$CODEX_RP_STATE_VALUE
+  else
+    # 兼容尚未记录 Keychain account 的早期 macOS 安装状态。
+    keychain_account=$provider_id
+  fi
   state_get codex_bin || die '状态缺少 codex_bin'; codex_bin=$CODEX_RP_STATE_VALUE
   profile_file="$codex_home/$provider_id.config.toml"
+}
+
+keychain_store() {
+  local account=${1:?keychain account required}
+  local service=${2:?keychain service required}
+  local value=${3:?keychain value required}
+  printf 'add-generic-password -U -a %s -s %s -w %s\n' \
+    "$account" "$service" "$value" | "$security_bin" -i >/dev/null
 }
 
 ensure_launcher() {
@@ -312,10 +332,29 @@ check_launcher_target() {
   fi
 }
 
-app_launcher_is_managed() {
-  [[ -f "$app_launcher/Contents/Resources/.codex-rp-managed" ]] \
+app_bundle_is_managed() {
+  local bundle=${1:?app bundle required}
+  [[ -f "$bundle/Contents/Resources/.codex-rp-managed" ]] \
     && grep -Fxq "$app_launcher_marker" \
-      "$app_launcher/Contents/Resources/.codex-rp-managed"
+      "$bundle/Contents/Resources/.codex-rp-managed"
+}
+
+app_launcher_is_managed() {
+  app_bundle_is_managed "$app_launcher"
+}
+
+migrate_legacy_app_launcher() {
+  [[ -n "$legacy_app_launcher" && -e "$legacy_app_launcher" ]] || return 0
+  [[ ! -L "$legacy_app_launcher" ]] || return 0
+  app_bundle_is_managed "$legacy_app_launcher" || return 0
+  mkdir -p "$(dirname "$app_launcher")"
+  if [[ -e "$app_launcher" ]]; then
+    app_launcher_is_managed \
+      || die "$app_launcher 已存在，且不由本套件管理；无法迁移英文快捷入口"
+    rm -rf "$legacy_app_launcher"
+  else
+    mv "$legacy_app_launcher" "$app_launcher"
+  fi
 }
 
 check_app_launcher_target() {
@@ -331,6 +370,7 @@ check_app_launcher_target() {
 
 ensure_app_launcher() {
   local app_parent temp_bundle old_bundle executable_file resources_dir icon_source
+  migrate_legacy_app_launcher
   check_app_launcher_target
   icon_source="$script_dir/assets/codex-rp.icns"
   [[ -f "$icon_source" ]] || die "macOS 图标资源缺失：$icon_source"
@@ -348,7 +388,7 @@ ensure_app_launcher() {
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>Codex Remote Provider Kit</string>
+  <string>Codex 远程模型服务工具</string>
   <key>CFBundleExecutable</key>
   <string>codex-rp-launcher</string>
   <key>CFBundleIdentifier</key>
@@ -356,7 +396,7 @@ ensure_app_launcher() {
   <key>CFBundleIconFile</key>
   <string>codex-rp.icns</string>
   <key>CFBundleName</key>
-  <string>Codex Remote Provider Kit</string>
+  <string>Codex 远程模型服务工具</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -448,7 +488,8 @@ ensure_codex() {
 install_provider() {
   local base_url='' model='gpt-5.6-sol' provider_id='third_party'
   local reasoning='high' codex_override='' api_key='' input
-  local staging_dir source_config stripped_config new_config profile_temp keychain_service
+  local staging_dir source_config stripped_config new_config profile_temp
+  local keychain_service keychain_account
   local config_existed='no' profile_existed='no' profile_file escaped_security
   local launcher_existed='no' launcher_changed='no' keychain_written='no'
   local app_launcher_existed='no' app_launcher_changed='no'
@@ -480,9 +521,12 @@ install_provider() {
 
   ensure_codex "$codex_override"
   check_launcher_target
+  migrate_legacy_app_launcher
   check_app_launcher_target
   keychain_service="codex-remote-provider-kit:$provider_id"
-  if "$security_bin" find-generic-password -s "$keychain_service" >/dev/null 2>&1; then
+  keychain_account=$provider_id
+  if "$security_bin" find-generic-password -a "$keychain_account" \
+      -s "$keychain_service" >/dev/null 2>&1; then
     die "Keychain 已存在同名条目：$keychain_service；请先确认或回滚"
   fi
 
@@ -553,7 +597,7 @@ wire_api = "responses"
 
 [model_providers.$provider_id.auth]
 command = "$escaped_security"
-args = ["find-generic-password", "-s", "$keychain_service", "-w"]
+args = ["find-generic-password", "-a", "$keychain_account", "-s", "$keychain_service", "-w"]
 # END codex-remote-provider-kit:$provider_id
 EOF
   cat > "$profile_temp" <<EOF
@@ -568,6 +612,7 @@ EOF
   state_put "$staging_dir" reasoning "$reasoning"
   state_put "$staging_dir" base_url "$base_url"
   state_put "$staging_dir" keychain_service "$keychain_service"
+  state_put "$staging_dir" keychain_account "$keychain_account"
   state_put "$staging_dir" codex_bin "$codex_bin"
   state_put "$staging_dir" config_existed "$config_existed"
   state_put "$staging_dir" profile_existed "$profile_existed"
@@ -583,7 +628,8 @@ EOF
     set +e
     if [[ ${install_failed:-no} == yes ]]; then
       if [[ "$keychain_written" == yes ]]; then
-        "$security_bin" delete-generic-password -s "$keychain_service" >/dev/null 2>&1 \
+        "$security_bin" delete-generic-password -a "$keychain_account" \
+          -s "$keychain_service" >/dev/null 2>&1 \
           || recovery_failed='yes'
       fi
       if [[ "$config_existed" == yes ]]; then
@@ -632,8 +678,8 @@ EOF
   }
   trap rollback_partial_install ERR
 
-  "$security_bin" add-generic-password -U -s "$keychain_service" -w "$api_key" >/dev/null
   keychain_written='yes'
+  keychain_store "$keychain_account" "$keychain_service" "$api_key"
   api_key=''
   install -m 600 "$new_config" "$config_file"
   install -m 600 "$profile_temp" "$profile_file"
@@ -698,7 +744,8 @@ show_status() {
   printf '用户配置：%s\n' "$config_file"
 
   keychain_status='缺失'
-  "$security_bin" find-generic-password -s "$keychain_service" >/dev/null 2>&1 \
+  "$security_bin" find-generic-password -a "$keychain_account" \
+    -s "$keychain_service" >/dev/null 2>&1 \
     && keychain_status='存在'
   printf '[凭据]\nKeychain 条目：%s\n' "$keychain_status"
   [[ "$keychain_status" == '存在' ]] || return 1
@@ -744,7 +791,8 @@ rotate_key() {
   read -rsp '请输入新的第三方 API 密钥（不会回显）：' api_key
   printf '\n'
   validate_api_key "$api_key" || die 'API 密钥包含不支持的字符'
-  "$security_bin" add-generic-password -U -s "$keychain_service" -w "$api_key" >/dev/null
+  keychain_store "$keychain_account" "$keychain_service" "$api_key"
+  api_key=''
   printf 'Keychain 密钥已更新；请确认新密钥可用后立即吊销旧密钥。\n'
 }
 
@@ -821,7 +869,8 @@ rollback_all() {
   elif app_launcher_is_managed; then
     rm -rf "$app_launcher"
   fi
-  "$security_bin" delete-generic-password -s "$keychain_service" >/dev/null 2>&1 || true
+  "$security_bin" delete-generic-password -a "$keychain_account" \
+    -s "$keychain_service" >/dev/null 2>&1 || true
   mkdir -p "$audit_dir"
   timestamp=$(date +%Y%m%d-%H%M%S)
   target="$audit_dir/state-$timestamp-$$"
@@ -834,26 +883,35 @@ show_menu() {
   ensure_launcher
   ensure_app_launcher
   while true; do
-    printf '\nCodex Remote Provider Kit（macOS）\n'
+    printf '\nCodex 远程模型服务工具（macOS）\n'
     printf '1) 安装第三方 provider\n2) 查看状态\n3) 完整测试\n'
     printf '4) 切换第三方\n5) 切换官方\n6) 轮换密钥\n'
     printf '7) 重启 ChatGPT 应用\n8) 完整回滚\n'
     printf '9) 安装/刷新 Mac 快捷启动\n0) 退出\n请选择：'
     read -r choice || return 0
     case "$choice" in
-      1) install_provider ;;
-      2) show_status ;;
-      3) run_test ;;
-      4) use_third_party ;;
-      5) use_official ;;
-      6) rotate_key ;;
-      7) restart_app ;;
-      8) rollback_all ;;
-      9) install_shortcuts ;;
+      1) run_menu_command install ;;
+      2) run_menu_command status ;;
+      3) run_menu_command test ;;
+      4) run_menu_command third-party ;;
+      5) run_menu_command official ;;
+      6) run_menu_command rotate-key ;;
+      7) run_menu_command restart-app ;;
+      8) run_menu_command rollback ;;
+      9) run_menu_command shortcut ;;
       0) return 0 ;;
       *) printf '无效选项。\n' >&2 ;;
     esac
   done
+}
+
+run_menu_command() {
+  local selected_command=${1:?menu command required}
+  if "$script_dir/codex-rp.sh" "$selected_command"; then
+    printf '操作完成，已返回主菜单。\n'
+  else
+    printf '操作失败，已返回主菜单。\n' >&2
+  fi
 }
 
 command_name=${1:-menu}

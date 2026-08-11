@@ -18,13 +18,23 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 ## macOS 快捷启动图标缺失或无法打开
 
 运行 `codex-rp shortcut` 重建
-`~/Applications/Codex Remote Provider Kit.app`。该入口会打开 Terminal 并运行管理
-面板。若目标路径
+`~/Applications/Codex 远程模型服务工具.app`。它会打开 Terminal 并运行管理面板。
+旧的受管英文入口会自动迁移；若目标路径
 已有不受本套件管理的同名 `.app`，脚本会拒绝覆盖；请先自行改名或移动该应用。
 
 如果快捷入口可以打开但 Finder/Dock 仍显示旧图标，先运行 `codex-rp shortcut`，
 再把 Dock 中的旧图标移除并从 `~/Applications` 重新拖入。脚本在原子替换 bundle 后会
 更新其修改时间，但 macOS 的 Dock 图标缓存可能仍需重新添加才会刷新。
+
+## macOS 写入 Keychain 时显示 `add-generic-password` Usage
+
+旧版 macOS 安装器未向 `/usr/bin/security` 提供必需的 account 参数，会在输入密钥后
+只显示 `add-generic-password` 用法并回滚。更新套件后重新运行 `codex-rp install`；
+新版会同时使用 provider ID 作为 Keychain account，并通过标准输入写入密钥，避免把
+密钥放进进程命令行。安装失败后的自动回滚不会保留新建凭据或部分 provider 配置。
+
+必须以实际登录 ChatGPT 的桌面用户在普通 Terminal 中运行，不要用 `sudo`。如果系统
+拒绝 Keychain 交互，请先确认登录钥匙串已经解锁，再重新执行安装。
 
 ## macOS/Windows 切换后仍使用旧 provider
 
