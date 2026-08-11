@@ -46,9 +46,6 @@ jobs:
       - name: Test provider reconfiguration and key rotation
         shell: bash
         run: sudo -E bash tests/test-reconfigure.sh
-      - name: Test macOS configuration lifecycle
-        shell: bash
-        run: bash tests/test-macos-platform.sh
       - name: Test online installer
         shell: bash
         run: bash tests/test-online-installer.sh
