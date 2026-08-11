@@ -23,9 +23,82 @@ esac
 
 state_file=${CODEX_RP_STATE_FILE:-/var/lib/codex-remote-provider/state.env}
 secret_file=${CODEX_RP_SECRET_FILE:-/etc/codex-remote-provider/provider.env}
-[[ -r "$state_file" ]] || { printf '缺少状态文件：%s\n' "$state_file" >&2; exit 1; }
+is_root_only_regular_file "$state_file" \
+  || { printf '状态文件缺失或类型无效：%s\n' "$state_file" >&2; exit 1; }
 # shellcheck disable=SC1090
 source "$state_file"
+session_provider=$(session_provider_id) || {
+  printf '错误：稳定会话供应商 ID 无效\n' >&2
+  exit 1
+}
+official_base_url=$(official_codex_base_url) || {
+  printf '错误：官方 Codex Base URL 无效\n' >&2
+  exit 1
+}
+resolve_provider_storage "$state_file" "$secret_file"
+if [[ -v OWNERSHIP_SCHEMA ]]; then
+  load_managed_provider_ids \
+    || { printf '错误：供应商所有权清单无效\n' >&2; exit 1; }
+else
+  CODEX_RP_MANAGED_PROVIDER_IDS=("$PROVIDER_ID")
+fi
+
+require_root_only_file() {
+  local target_file=${1:?file required}
+  local label=${2:?label required}
+  local mode owner
+
+  [[ -f "$target_file" && ! -L "$target_file" ]] || {
+    printf '缺少%s：%s\n' "$label" "$target_file" >&2
+    return 1
+  }
+  mode=$(stat -c '%a' "$target_file") || return 1
+  owner=$(stat -c '%u' "$target_file") || return 1
+  [[ "$mode" == 600 && "$owner" == 0 ]] || {
+    printf '%s必须由 root 拥有且权限为 0600：%s（当前 owner=%s mode=%s）\n' \
+      "$label" "$target_file" "$owner" "$mode" >&2
+    return 1
+  }
+}
+
+require_root_only_dir_if_present() {
+  local target_dir=${1:?directory required}
+  local label=${2:?label required}
+  local mode owner
+
+  [[ -e "$target_dir" ]] || return 0
+  [[ -d "$target_dir" && ! -L "$target_dir" ]] || {
+    printf '%s不是目录：%s\n' "$label" "$target_dir" >&2
+    return 1
+  }
+  mode=$(stat -c '%a' "$target_dir") || return 1
+  owner=$(stat -c '%u' "$target_dir") || return 1
+  [[ "$mode" == 700 && "$owner" == 0 ]] || {
+    printf '%s必须由 root 拥有且权限为 0700：%s（当前 owner=%s mode=%s）\n' \
+      "$label" "$target_dir" "$owner" "$mode" >&2
+    return 1
+  }
+}
+
+require_root_only_file "$state_file" '状态文件'
+require_root_only_file "$secret_file" '活动密钥文件'
+require_root_only_dir_if_present "$CODEX_RP_PROVIDERS_PATH" '供应商记录目录'
+require_root_only_dir_if_present "$CODEX_RP_PROVIDER_SECRETS_PATH" '供应商密钥目录'
+for managed_provider_id in "${CODEX_RP_MANAGED_PROVIDER_IDS[@]}"; do
+  provider_record_file=$(provider_record_path \
+    "$CODEX_RP_PROVIDERS_PATH" "$managed_provider_id")
+  provider_secret_file=$(provider_secret_path \
+    "$CODEX_RP_PROVIDER_SECRETS_PATH" "$managed_provider_id")
+  if [[ ${OWNERSHIP_SCHEMA:-} == 1 ]]; then
+    require_root_only_file "$provider_record_file" '供应商记录文件'
+    require_root_only_file "$provider_secret_file" '供应商密钥文件'
+  else
+    [[ ! -e "$provider_record_file" ]] \
+      || require_root_only_file "$provider_record_file" '供应商记录文件'
+    [[ ! -e "$provider_secret_file" ]] \
+      || require_root_only_file "$provider_secret_file" '供应商密钥文件'
+  fi
+done
 
 third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
 official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-official.service}
@@ -34,16 +107,29 @@ official_unit_name=${official_unit_file##*/}
 
 third_party_active='no'
 official_active='no'
+third_party_enabled='no'
+official_enabled='no'
 systemctl is-active "$third_party_unit_name" >/dev/null 2>&1 && third_party_active='yes'
 systemctl is-active "$official_unit_name" >/dev/null 2>&1 && official_active='yes'
+systemctl is-enabled "$third_party_unit_name" >/dev/null 2>&1 && third_party_enabled='yes'
+systemctl is-enabled "$official_unit_name" >/dev/null 2>&1 && official_enabled='yes'
 
-if [[ "$third_party_active" == yes && "$official_active" == yes ]]; then
-  printf '错误：第三方和官方 Remote service 同时处于 active 状态\n' >&2
+if [[ "$third_party_active" == yes && "$official_active" == yes ]] \
+    || [[ "$third_party_enabled" == yes && "$official_enabled" == yes ]]; then
+  printf '错误：第三方和官方 Remote service 状态冲突（同时 active 或 enabled）\n' >&2
   exit 1
 elif [[ "$third_party_active" == yes ]]; then
+  [[ "$third_party_enabled" == yes && "$official_enabled" == no ]] || {
+    printf '错误：第三方 Remote 正在运行，但 systemd 启用状态不匹配\n' >&2
+    exit 1
+  }
   mode='third-party'
   selected_unit_name=$third_party_unit_name
 elif [[ "$official_active" == yes ]]; then
+  [[ "$official_enabled" == yes && "$third_party_enabled" == no ]] || {
+    printf '错误：官方 Remote 正在运行，但 systemd 启用状态不匹配\n' >&2
+    exit 1
+  }
   mode='official'
   selected_unit_name=$official_unit_name
 else
@@ -55,7 +141,6 @@ printf '[服务状态]\n'
 printf '当前模式：%s\n' "$mode"
 systemctl show "$selected_unit_name" \
   -p ActiveState -p SubState -p Result -p UnitFileState --no-pager
-[[ $(systemctl is-enabled "$selected_unit_name") == enabled ]]
 
 printf '[Codex 状态]\n'
 "$CODEX_BIN_PATH" --version
@@ -73,26 +158,44 @@ else
 fi
 
 printf '[配置检查]\n'
+printf '当前供应商：%s\n' "$PROVIDER_ID"
+printf '稳定会话供应商：%s\n' "$session_provider"
+printf '当前地址：%s\n' "$BASE_URL"
+printf '已保存供应商：%d 个\n' "${#CODEX_RP_MANAGED_PROVIDER_IDS[@]}"
 python3 - "$CODEX_HOME_DIR/config.toml" "$CODEX_HOME_DIR/$PROVIDER_ID.config.toml" \
-  "$PROVIDER_ID" "$MODEL" "$REASONING" "$mode" "$BACKUP_DIR/config.toml" <<'PY'
+  "$session_provider" "$MODEL" "$REASONING" "$mode" "$BACKUP_DIR/config.toml" \
+  "$BASE_URL" "$ENV_NAME" "$official_base_url" <<'PY'
 import pathlib, sys, tomllib
 
 config_path = pathlib.Path(sys.argv[1])
 profile_path = pathlib.Path(sys.argv[2])
 mode = sys.argv[6]
 backup_path = pathlib.Path(sys.argv[7])
+base_url = sys.argv[8]
+env_name = sys.argv[9]
+official_base_url = sys.argv[10]
 
 with config_path.open("rb") as handle:
     user_config = tomllib.load(handle)
 print(f"通过：{config_path}")
 
-keys = ("model_provider", "model", "model_reasoning_effort")
+session_provider = sys.argv[3]
+if user_config.get("model_provider") != session_provider:
+    raise SystemExit(
+        f"默认配置 model_provider 不匹配：应为 {session_provider}，"
+        f"实际为 {user_config.get('model_provider')!r}"
+    )
+print(f"默认配置 model_provider：{session_provider}")
+
+provider = user_config.get("model_providers", {}).get(session_provider)
+if not isinstance(provider, dict):
+    raise SystemExit(f"缺少稳定会话供应商配置：{session_provider}")
+
 if mode == "third-party":
     with profile_path.open("rb") as handle:
         tomllib.load(handle)
     print(f"通过：{profile_path}")
     expected = {
-        "model_provider": sys.argv[3],
         "model": sys.argv[4],
         "model_reasoning_effort": sys.argv[5],
     }
@@ -103,13 +206,19 @@ if mode == "third-party":
                 f"默认配置 {key} 不匹配：应为 {wanted}，实际为 {actual!r}"
             )
         print(f"默认配置 {key}：{actual}")
+    if provider.get("base_url", "").rstrip("/") != base_url.rstrip("/"):
+        raise SystemExit("稳定会话供应商 Base URL 与当前第三方地址不匹配")
+    if provider.get("env_key") != env_name:
+        raise SystemExit("稳定会话供应商 env_key 与当前第三方密钥变量不匹配")
+    if provider.get("requires_openai_auth"):
+        raise SystemExit("第三方模式不应启用 OpenAI 登录认证")
 else:
     if backup_path.is_file():
         with backup_path.open("rb") as handle:
             original = tomllib.load(handle)
     else:
         original = {}
-    for key in keys:
+    for key in ("model", "model_reasoning_effort"):
         if key in original:
             if user_config.get(key) != original[key]:
                 raise SystemExit(
@@ -121,6 +230,13 @@ else:
             raise SystemExit(f"官方模式配置 {key} 应当不存在，实际为 {user_config[key]!r}")
         else:
             print(f"已恢复 {key}：未设置")
+    if provider.get("base_url", "").rstrip("/") != official_base_url.rstrip("/"):
+        raise SystemExit("官方模式稳定会话供应商 Base URL 不匹配")
+    if provider.get("requires_openai_auth") is not True:
+        raise SystemExit("官方模式稳定会话供应商未启用 OpenAI 登录认证")
+    for forbidden in ("env_key", "experimental_bearer_token", "auth"):
+        if forbidden in provider:
+            raise SystemExit(f"官方模式稳定会话供应商不应包含 {forbidden}")
 PY
 
 if [[ "$mode" == official ]]; then

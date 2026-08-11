@@ -45,7 +45,7 @@ Codex Remote Provider Kit（Windows）
   install       安装/配置第三方 provider
   status        检查配置、DPAPI 凭据、Codex 与 ChatGPT 应用
   test          执行一次最小化第三方 Codex 真实调用
-  official      恢复安装前的官方默认模型配置
+  official      恢复安装前记录的默认模型配置
   third-party   重新启用第三方模型配置
   rotate-key    更新当前 Windows 用户的 DPAPI 加密密钥
   restart-app   明确重启 ChatGPT 桌面应用
@@ -449,13 +449,13 @@ function Use-ThirdParty {
 
 function Use-Official {
     $state = Load-State
-    $confirmation = Read-Confirmation '只恢复安装前官方默认配置，可能使用官方额度。是否继续？[y/N]'
+    $confirmation = Read-Confirmation '只恢复安装前记录的默认配置；若原配置使用官方模型，可能消耗官方额度。是否继续？[y/N]'
     if ($confirmation -notmatch '^[yY]$') {
         Write-Host '操作已取消。'
         return
     }
     Restore-OfficialDefaults $state
-    Write-Host '已恢复安装前官方默认配置。DPAPI 凭据、账号和 Remote 配对均未删除。'
+    Write-Host '已恢复安装前默认配置。DPAPI 凭据、账号和 Remote 配对均未删除。'
     Write-Host '请明确运行 codex-rp restart-app，再新建会话。'
 }
 
@@ -472,10 +472,10 @@ function Show-Status {
         if ($modelValue -ne $state.model) { Fail "模型不匹配：$modelValue" }
         if ($reasoningValue -ne $state.reasoning) { Fail "推理强度不匹配：$reasoningValue" }
     }
-    elseif (Test-OfficialDefaults) { Write-Host '当前模式：official' }
+    elseif (Test-OfficialDefaults) { Write-Host '当前模式：baseline（安装前默认值；兼容命令名 official）' }
     else {
         Write-Host '当前模式：unmanaged'
-        Fail '三项顶层默认配置既不匹配第三方模式，也不匹配安装前官方模式。'
+        Fail '三项顶层默认配置既不匹配第三方模式，也不匹配安装前默认模式。'
     }
     Write-Host "用户配置：$($script:ConfigFile)"
 

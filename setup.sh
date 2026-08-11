@@ -24,8 +24,8 @@ Codex Remote 第三方模型供应商管理工具
   status        查看服务和配置状态，不生成模型回复
   test          检查接口并执行一次最小化的真实 Codex 回合
   official      手动将 Remote 切换到默认/官方供应商
-  third-party   启动或切换到已安装的第三方供应商
-  reconfigure   修改第三方接口、模型、推理强度，可选择同时更换密钥
+  third-party   从已保存的地址中选择并切换第三方供应商
+  reconfigure   新增或更新第三方地址，并保存为独立供应商
   rotate-key    仅更换第三方 API 密钥
   rollback      恢复安装前配置并移除已保存的密钥
   help          显示本帮助
@@ -33,7 +33,7 @@ Codex Remote 第三方模型供应商管理工具
 默认安装设置：
   接口地址：      https://api.example.com/v1（示例，安装时必须替换）
   模型：          gpt-5.6-sol
-  供应商 ID：     third_party
+  供应商 ID：     根据 Base URL 自动生成
   Codex 目录：    /root/.codex
 
 示例：
@@ -86,10 +86,10 @@ show_panel() {
     printf '1) 从零安装 / 重启第三方 Remote\n'
     printf '2) 查看基础状态\n'
     printf '3) 运行完整连接测试\n'
-    printf '4) 切换到第三方推理\n'
+    printf '4) 选择 / 切换第三方供应商\n'
     printf '5) 切换到官方推理\n'
-    printf '6) 重新配置第三方 API\n'
-    printf '7) 仅修改第三方 API Key\n'
+    printf '6) 新增 / 更新第三方地址\n'
+    printf '7) 仅修改当前地址 API Key\n'
     printf '8) 完整回滚\n'
     printf '9) 查看帮助\n'
     printf '10) 仅安装 / 检查 Codex CLI\n'
@@ -117,7 +117,7 @@ show_panel() {
 }
 
 panel_install() {
-  local base_url model provider_id reasoning input
+  local base_url model reasoning input
 
   if [[ -r /var/lib/codex-remote-provider/state.env ]]; then
     "$script_dir/setup.sh" install
@@ -128,7 +128,6 @@ panel_install() {
 
   base_url='https://api.example.com/v1'
   model='gpt-5.6-sol'
-  provider_id='third_party'
   reasoning='high'
 
   while true; do
@@ -143,9 +142,6 @@ panel_install() {
   printf '模型 [%s]: ' "$model"
   read -r input || return 1
   model=${input:-$model}
-  printf '供应商 ID（Provider ID）[%s]: ' "$provider_id"
-  read -r input || return 1
-  provider_id=${input:-$provider_id}
   printf '推理强度 none/minimal/low/medium/high/xhigh [%s]: ' "$reasoning"
   read -r input || return 1
   reasoning=${input:-$reasoning}
@@ -153,7 +149,6 @@ panel_install() {
   "$script_dir/setup.sh" install \
     --base-url "$base_url" \
     --model "$model" \
-    --provider-id "$provider_id" \
     --reasoning "$reasoning"
 }
 
@@ -218,13 +213,13 @@ case "$command_name" in
       "$script_dir/install-provider.sh" \
         --base-url https://api.example.com/v1 \
         --model gpt-5.6-sol \
-        --provider-id third_party \
         --codex-home /root/.codex \
         "$@"
     fi
     printf '\n正在运行完整验证……\n'
     "$script_dir/status.sh" --full
-    printf '\n准备就绪。请在手机端新建对话并发送：Reply exactly OK\n'
+    printf '\n准备就绪。已有稳定 ID 对话时请先尝试在原 thread 发送：Reply exactly OK\n'
+    printf '首次安装或没有已有 thread 时，请新建会话发送同一句测试。\n'
     ;;
   codex)
     "$script_dir/install-codex.sh" "$@"

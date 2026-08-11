@@ -9,6 +9,7 @@ workspace、设备配对和消息通道。
 
 ## 仓库内容
 
+- `REQUIREMENTS.md`：完整产品功能需求、实现边界和发布验收清单。
 - `install.sh`：供 `curl | sh` 使用的公开在线安装入口。
 - `install-windows.ps1`：供 Windows PowerShell 使用的公开在线安装入口。
 - `install-provider.sh`：安装第三方 provider、专用 systemd 服务和安全的密钥文件。
@@ -47,7 +48,11 @@ DPAPI 加密。桌面平台通过 Codex 官方支持的 provider `auth.command` 
 
 macOS/Windows 切换默认只原子更新用户级 Codex 配置，不会自动退出或重启 ChatGPT，
 因此不会无提示中断 Remote。需要应用新配置时，由用户明确执行 `restart-app`；这会
-造成短暂断线，但不会注销账号或删除配对。
+造成短暂断线，但不会注销账号或删除配对。两个桌面平台目前仍直接切换 provider，
+没有采用下述 Linux 稳定会话 ID 机制；重启后应新建会话，不要宣称可以无缝续写。
+桌面端保留 `official` 作为兼容命令名，但它只恢复安装前记录的三项默认值；工具
+不会证明这些原始值一定来自 OpenAI，状态中显示为 `baseline`。安装前应先确认桌面
+Codex 处于所需默认模式。
 
 若机器还没有 Codex，套件会自动调用 OpenAI 官方安装器。对应的官方独立命令是：
 
@@ -73,8 +78,11 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 ```
 
 面板统一提供安装、状态检查、完整测试、第三方/官方切换和回滚。首次安装可以
-填写第三方 Base URL、模型、Provider ID 和推理强度；Base URL 必须替换为真实
-地址，其他项目可直接回车使用默认值。需要系统权限时脚本会自动通过 `sudo`
+填写第三方 Base URL、模型和推理强度。Linux 的面板、`setup.sh` 和重新配置流程会
+根据规范化 Base URL 自动生成具体第三方注册记录 `PROVIDER_ID`，地址变化时 ID 也会
+变化；底层安装器的 `--provider-id` 仅用于保留旧版手工 ID 或隔离测试，不应用于
+新增生产地址。macOS/Windows 仍管理安装时指定的单个 Provider ID。Base URL 必须
+替换为真实地址，其他项目可直接回车使用默认值。需要系统权限时脚本会自动通过 `sudo`
 重新执行，不需要手工拼接命令。macOS 使用当前用户目录和 Keychain，不需要 root。
 套件自身的菜单、帮助、进度和错误提示均使用中文；systemd、Codex CLI 与第三方
 接口直接返回的字段或日志会保留原文，便于检索和排障。
@@ -91,6 +99,14 @@ codex-rp
 Linux 安装会创建第三方 `codex-remote-provider.service` 和官方
 `codex-remote-official.service`，并且始终只启用其中一个。首次安装立即启用第三方
 模式；退出命令面板不会停止 Remote 后台服务，切换后的模式也会跨系统重启保持。
+
+Linux 另外固定一个 `SESSION_PROVIDER_ID` 作为会话身份：首次安装时取初始
+`PROVIDER_ID`，旧版升级时取升级当时的当前 `PROVIDER_ID`，之后切换地址或模式都
+不再改变。第三方模式让这个稳定 ID 指向所选网关并使用 `env_key`；官方模式让同一
+ID 指向 `https://chatgpt.com/backend-api/codex` 并设置
+`requires_openai_auth = true`。因此升级后的稳定 ID 下，切换完成并重新连接后应优先
+尝试继续原 thread；这要求该 thread 已使用稳定 ID，若客户端仍过滤历史则按下述
+显式恢复流程处理。
 
 ## Linux 服务器从零安装并运行
 
@@ -131,7 +147,7 @@ cd codex-remote-provider-kit
 1. 检查并安装系统依赖；
 2. 检查 Codex CLI，缺少或不支持 Remote 时运行 OpenAI 官方安装器；
 3. 显示网址和设备代码，引导完成 ChatGPT 登录；
-4. 询问第三方 Base URL、模型和推理强度；
+4. 询问第三方 Base URL、模型和推理强度，并根据地址生成 Provider ID；
 5. 静默读取第三方 API 密钥；
 6. 安装并启动 Remote 服务，然后完成接口和真实 Codex 回合验证。
 
@@ -156,8 +172,9 @@ sudo ./setup.sh codex
 安装、启动服务，并完成模型目录、Responses 流式接口和真实 Codex 回合三层检查。
 密钥输入不会回显。
 按回车后脚本会显示已接收的字符数，便于确认粘贴成功，但不会显示密钥内容。
-安装器还会把用户级默认 `model_provider`、`model` 和推理强度作为一组设置为
-第三方配置；托管 Remote daemon 在创建新会话时会读取这些值。
+安装器会把用户级默认 `model_provider` 固定为 `SESSION_PROVIDER_ID`，并同步当前
+模式需要的模型、推理强度和 provider 定义。托管 Remote daemon 重启后仍看到同一
+会话身份，只是该身份对应的推理端点发生变化。
 
 已经安装过时，再次运行 `sudo ./setup.sh` 不会覆盖初始备份或要求重新输入密钥；
 它会刷新新版 unit 与全局命令、切回第三方 Remote，并执行完整检查。
@@ -242,8 +259,8 @@ WSL2 默认使用另一份 `~/.codex`，不会自动与 Windows 应用共享配�
 sudo ./setup.sh status       # 基础检查，不生成模型回复
 sudo ./setup.sh test         # 完整真实调用检查
 sudo ./setup.sh official     # 人工切回官方推理
-sudo ./setup.sh third-party  # 切回第三方推理
-sudo ./setup.sh reconfigure  # 修改接口、模型或推理强度
+sudo ./setup.sh third-party  # 从已保存地址中选择并切换
+sudo ./setup.sh reconfigure  # 新增或更新一个第三方地址
 sudo ./setup.sh rotate-key   # 仅更换第三方 API Key
 sudo ./setup.sh rollback     # 完整回滚
 ```
@@ -261,14 +278,16 @@ sudo ./status.sh --full
 ```
 
 官方模式下，即使指定 `--full` 也不会自动生成模型回复，以免意外消耗官方额度；
-此时脚本只验证服务、登录状态和安装前默认配置是否已经恢复。
+此时脚本只验证服务、登录状态、稳定 ID 的官方端点绑定，以及安装前模型默认值。
 
-最后在手机上**新建会话**，发送 `Reply exactly OK`。不要让本地 Codex 与手机
-同时打开同一个会话；会话存储只允许一个活跃写入者。
+首次安装且没有现有 thread 时，在手机上新建会话并发送 `Reply exactly OK`。验证
+Linux 切换时，先等当前 turn 完整结束，再执行切换；Remote 会短暂断开，重新连接后
+在原 thread 发送同一句测试。不要让本地 Codex 与手机同时写同一个会话；只有原
+thread 无法恢复时才新建会话。
 
-新会话的服务器端 `session_meta.model_provider` 应为安装时填写的供应商 ID，模型也应与
-安装参数一致。让模型自己回答 provider 不能作为验证依据；应使用服务器元数据
-或 `status.sh --full`。
+升级后创建或继续的 Linux thread，其服务器端 `session_meta.model_provider` 应为
+固定的 `SESSION_PROVIDER_ID`，不一定等于当前具体第三方的 `PROVIDER_ID`。让模型
+自己回答 provider 不能作为验证依据；应使用服务器元数据或 `status.sh --full`。
 
 ## 回退与恢复
 
@@ -285,7 +304,17 @@ sudo ./use-third-party.sh
 ```
 
 两次切换都会更新 systemd 的开机启用状态，因此服务器重启后仍保持最后一次人工
-选择，不会自动从第三方故障转到官方。
+选择，不会自动从第三方故障转到官方。切换前必须等当前 turn 完成；脚本会重启
+Remote daemon 并造成短暂断线。若原 thread 已使用稳定 ID，恢复后先尝试继续；
+不可见时使用显式 thread ID 恢复，只有恢复失败时才新建会话。
+
+Linux 可以保存多个第三方地址。面板选择“新增 / 更新第三方地址”时，新地址会
+建立独立的 Provider ID、profile、元数据和 root-only Key 文件，不覆盖旧地址。
+选择“选择 / 切换第三方供应商”会列出所有已保存地址；切换已有地址无需重新输入
+URL、模型或 Key。只有新增地址和主动轮换密钥时才需要输入 Key。
+已保存列表来自带版本的所有权清单；清单外文件不会被遍历、接管或回滚删除，也不会
+阻断正常操作。新增或受管精确路径发生类型、标记或内容冲突时操作会安全停止。首次
+安装若初始 Provider 的 profile 已存在，安装器会先备份，完整回滚时再原样恢复。
 
 完全撤销本套配置：
 
@@ -312,15 +341,18 @@ sudo ./rollback.sh
   承担正式工作。
 - 当前 unit 使用 `Type=oneshot` 启动 Codex 自身的后台 daemon；systemd 能持久化
   所选模式，但不能直接监督 daemon 的实际 PID。应结合 `status.sh` 做可用性检查。
+- 旧版已经以 `openai` 或其他 provider ID 创建的历史可能仍被客户端按 provider
+  过滤。记录没有因此被删除；可用显式 thread ID 加模型/provider 覆盖恢复单个
+  thread。本项目不会改写 SQLite/JSONL，也没有可调用的官方批量迁移 API。
 - OpenAI 官方支持 macOS/Windows 桌面应用作为 Remote 宿主，也支持自定义 provider
   的命令式认证；但官方文档没有承诺每个第三方 Responses 网关都兼容桌面 Remote。
   两个平台发布前仍需在真实设备上执行 `status`、`test` 和手机新会话验证。
 
 ## 官方参考
 
-- [Codex CLI](https://developers.openai.com/codex/cli/)
+- [Codex 命令与会话恢复](https://learn.chatgpt.com/docs/developer-commands.md?surface=cli)
 - [Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)
-- [Remote connections](https://learn.chatgpt.com/docs/remote-connections)
+- [Remote connections](https://learn.chatgpt.com/docs/remote-connections.md)
 - [Windows 桌面应用](https://learn.chatgpt.com/docs/windows/windows-app)
 
 ## 许可证

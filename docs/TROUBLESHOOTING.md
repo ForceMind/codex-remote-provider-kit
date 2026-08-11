@@ -19,7 +19,8 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 
 桌面切换默认不会自动关闭 ChatGPT。运行 `codex-rp restart-app`，确认短暂断开后
 重新连接，再创建新会话。已有活跃会话可能保留切换前的 app-server/provider，不要
-同时在手机和桌面继续写同一会话。
+同时在手机和桌面继续写同一会话。macOS/Windows 尚未实现 Linux 的稳定
+`SESSION_PROVIDER_ID` 重绑定，不应按 Linux 的无缝续写流程处理。
 
 macOS 可在“钥匙串访问”中确认服务名 `codex-remote-provider-kit:<provider-id>`；
 Windows 可确认 `%LOCALAPPDATA%\CodexRemoteProviderKit\active\provider.key` 存在。
@@ -64,23 +65,52 @@ API key 登录不能替代 Remote 所需的 ChatGPT 登录。
 
 1. 服务是否为 active，Remote 是否已经成功连接。
 2. `sudo ./status.sh --full` 是否能完成 Responses 与真实 Codex 调用。
-3. 手机上新建会话，不要继续使用报错的旧会话。
-4. 确认没有本地 Codex 或第二个 Remote 进程正在写同一会话。
-5. 若第三方宕机，运行 `use-official.sh` 人工回退。
+3. 确认没有本地 Codex 或第二个 Remote 进程正在写同一会话。
+4. Linux 在 Remote 重连后先打开原 thread 重试；只有旧历史被过滤或显式恢复也失败
+   时才新建会话。macOS/Windows 切换后仍新建会话。
+5. 若第三方宕机，Linux 运行 `sudo codex-rp official` 人工回退；macOS/Windows 运行
+   `codex-rp official`，再明确执行 `codex-rp restart-app` 应用配置。
 
-## 新会话仍显示 `model_provider=openai`
+## Linux 当前配置仍显示 `model_provider=openai`
 
 Remote 的 `start` 命令会引导一个独立的托管 app-server daemon。只给引导命令
 传递临时 `-c model_provider=...`，不保证该值被后台 daemon 继承。必须确认用户级
 `$CODEX_HOME/config.toml` 顶层包含：
 
 ```toml
-model_provider = "third_party"
+model_provider = "<SESSION_PROVIDER_ID>"
 ```
 
-同时确认顶层 `model` 和 `model_reasoning_effort` 与安装参数一致，然后完整停止并
-重新启动 Remote，再创建新会话。`status.sh` 会检查这三个默认值。切换脚本也会
-先更新整组默认值，再重启 daemon。
+这里应填写 `status.sh` 显示的实际稳定 ID，不能照抄尖括号。它与当前具体第三方的
+`PROVIDER_ID` 可以不同。第三方模式下，同名 provider 定义应指向当前 Base URL 并
+包含正确 `env_key`；官方模式下应指向
+`https://chatgpt.com/backend-api/codex`，包含 `requires_openai_auth = true` 且不含
+`env_key`。`status.sh` 会检查这些条件。
+
+修正配置前先等当前 turn 完成，再完整停止并重新启动 Remote。若原 thread 已使用
+稳定 ID，重连后先尝试继续；不可见时按 thread ID 显式恢复。旧 thread 的元数据仍
+显示 `openai` 不代表顶层配置错误，也不会由本项目自动改写。
+
+## Linux 切换后旧历史不显示
+
+新版首次安装会把初始 `PROVIDER_ID` 固定为 `SESSION_PROVIDER_ID`；旧版首次升级则
+把升级时的当前 `PROVIDER_ID` 固定下来。此后官方模式用同一 ID 加
+`requires_openai_auth = true`，第三方模式用同一 ID 加当前网关的 `env_key`。升级后在
+该稳定 ID 下产生的 thread 应先尝试直接继续；客户端不可见时仍按 thread ID 显式恢复。
+
+升级前以 `openai` 或其他 provider ID 创建的历史可能被客户端按 provider 过滤，
+但 SQLite/JSONL 记录通常仍在。已知 thread ID 时，先确保没有其他活跃写入者，再用
+显式模型和 provider 覆盖恢复：
+
+```bash
+codex resume <THREAD_ID> --model <MODEL> \
+  -c 'model_provider="<RECOVERY_PROVIDER_ID>"'
+```
+
+恢复 ID 必须对应当前配置中的有效 provider；通常用 `SESSION_PROVIDER_ID`，只有旧
+provider 定义和凭据仍有效时才沿用历史 ID。`codex resume` 的参数见
+[OpenAI Docs](https://learn.chatgpt.com/docs/developer-commands.md?surface=cli)。本项目
+不会扫描或改写 SQLite/JSONL，也没有官方批量迁移 API。显式恢复失败时才新建会话。
 
 ## `/v1/models` 成功，但 `/v1/responses` 报 Input must be a list
 
@@ -105,15 +135,16 @@ model_provider = "third_party"
 
 - `status.sh --full` 的 Responses 检查成功；
 - 临时 `codex exec` 返回 OK；
-- 手机新会话能收到回复。
+- Linux 手机端原 thread 能收到后续回复，或首次安装的新会话能收到回复。
 
 如果其中任一失败，不能把刷新错误当作无害。
 
 ## `thread-store conflict` 或 `already has an active writer`
 
 同一个线程正被另一个 Codex 进程持有。关闭本地正在打开该线程的 Codex，确保
-只运行一个 Remote daemon，然后在手机上新建会话。不要删除 session 文件；这
-会丢失历史且不解决多进程根因。
+只运行一个 Remote daemon；原写入者完全退出后，先在手机上继续同一 thread。只有
+原 thread 仍无法恢复时才新建会话。不要删除 session 文件；这会丢失历史且不解决
+多进程根因。
 
 ## systemd 报 `203/EXEC`
 
@@ -160,7 +191,16 @@ sudo systemctl restart codex-remote-provider.service
 ## `429`、超时或 `5xx`
 
 这是配额、限流或上游故障。先间隔重试并查看供应商状态；业务必须继续时，人工
-执行 `use-official.sh`。恢复后再 `use-third-party.sh` 并运行完整检查。
+执行 `use-official.sh`。切换前等当前 turn 结束；若原 thread 已使用稳定 ID，短暂
+重连后先尝试继续，不可见时显式恢复。上游恢复后再 `use-third-party.sh` 并运行
+完整检查。
+
+## 提示“所有权清单无效”或“非受管文件冲突”
+
+不要删除冲突文件后盲目重试。先确认 `state.env`、Provider record/secret、profile
+是否仍为套件创建的普通文件，并检查路径是否被符号链接或人工文件替换。目录中的
+其他 `.env` 不属于套件，列表和回滚都会保留它们。若确需接管同名路径，先把外部
+文件移动到明确的备份位置，再通过面板重新配置；不要把文件内容或密钥贴到 Issue。
 
 ## 回退也无法恢复
 
