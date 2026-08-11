@@ -77,7 +77,7 @@ shell_tool = true
     if (-not $config.Contains('model = "official-model"')) { throw 'Official model was not restored.' }
     if (-not $config.Contains('[model_providers.third_party.auth]')) { throw 'Managed provider block was unexpectedly removed.' }
     $officialStatus = (& $entry status *>&1 | Out-String)
-    if ($officialStatus -notmatch '当前模式：official') { throw 'Official status was not detected.' }
+    if ($officialStatus -notmatch '当前模式：baseline') { throw 'Baseline status was not detected.' }
 
     Remove-Item Env:CODEX_RP_CONFIRMATION
     & $entry third-party

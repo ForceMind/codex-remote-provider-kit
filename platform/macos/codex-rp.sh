@@ -18,7 +18,7 @@ Codex Remote Provider Kit（macOS）
   install       安装/配置第三方 provider
   status        检查配置、Keychain、Codex 与 ChatGPT 桌面应用
   test          执行一次最小化的第三方 Codex 真实调用
-  official      恢复安装前的官方默认模型配置
+  official      恢复安装前记录的默认模型配置
   third-party   重新启用第三方模型配置
   rotate-key    更新 macOS Keychain 中的第三方密钥
   restart-app   明确重启 ChatGPT 桌面应用以加载新配置
@@ -535,7 +535,7 @@ use_third_party() {
 use_official() {
   local confirmation
   load_state
-  printf '此操作只恢复安装前的官方默认模型配置，可能使用官方额度。\n'
+  printf '此操作只恢复安装前记录的默认配置；若原配置使用官方模型，可能消耗官方额度。\n'
   printf '是否继续？[y/N]：'
   read -r confirmation
   case "$confirmation" in
@@ -544,7 +544,7 @@ use_official() {
     *) die '请输入 y 或 n；操作已取消' ;;
   esac
   restore_official_defaults
-  printf '已恢复安装前官方默认配置。Keychain、账号和 Remote 配对均未删除。\n'
+  printf '已恢复安装前默认配置。Keychain、账号和 Remote 配对均未删除。\n'
   printf '请明确运行 codex-rp restart-app，再新建会话。\n'
 }
 
@@ -561,10 +561,10 @@ show_status() {
     [[ "$actual_model" == "$model" ]] || die "模型不匹配：$actual_model"
     [[ "$actual_reasoning" == "$reasoning" ]] || die "推理强度不匹配：$actual_reasoning"
   elif official_defaults_match; then
-    printf '当前模式：official\n'
+    printf '当前模式：baseline（安装前默认值；兼容命令名 official）\n'
   else
     printf '当前模式：unmanaged\n'
-    die '三项顶层默认配置既不匹配第三方模式，也不匹配安装前官方模式'
+    die '三项顶层默认配置既不匹配第三方模式，也不匹配安装前默认模式'
   fi
   printf '用户配置：%s\n' "$config_file"
 

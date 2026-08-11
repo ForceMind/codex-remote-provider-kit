@@ -21,7 +21,7 @@ jobs:
           done < <(find . -type f -name '*.sh' -print0)
       - name: Test default provider switching
         shell: bash
-        run: bash tests/test-provider-config.sh
+        run: sudo -E bash tests/test-provider-config.sh
       - name: Test command panel
         shell: bash
         run: printf '2\n0\n' | bash panel.sh
@@ -37,6 +37,24 @@ jobs:
       - name: Test systemd unit generation
         shell: bash
         run: bash tests/test-systemd-units.sh
+      - name: Test unit refresh transaction rollback
+        shell: bash
+        run: sudo -E bash tests/test-refresh-units-transaction.sh
+      - name: Install Codex CLI for continuity validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://chatgpt.com/codex/install.sh | sh
+          test -x "$HOME/.local/bin/codex"
+      - name: Test stable session provider routing
+        shell: bash
+        run: |
+          CODEX_BIN="$HOME/.local/bin/codex" \
+            CODEX_RP_REQUIRE_CONTINUITY_TEST=yes \
+            bash tests/test-session-continuity.sh
+      - name: Test legacy session provider upgrade
+        shell: bash
+        run: bash tests/test-legacy-session-upgrade.sh
       - name: Test provider installation transaction
         shell: bash
         run: sudo -E bash tests/test-install-provider.sh
@@ -56,8 +74,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pattern='(sk-[A-Za-z0-9_-]{20,}|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}|THIRD_PARTY_API_KEY=[A-Za-z0-9._~+/-]{20,})'
-          if grep -RInE --exclude-dir=.git "$pattern" .; then
+          pattern='(sk-[A-Za-z0-9_-]{20,}|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~+/=-]{20,}|[A-Za-z_][A-Za-z0-9_]*_API_KEY[[:space:]]*=[[:space:]]*"?[A-Za-z0-9._~+/=-]{20,}"?)'
+          fixture_token=$(printf 'A%.0s' {1..24})
+          if ! printf 'THIRD_PARTY_API_KEY=%s\n' "$fixture_token" | grep -qE "$pattern"; then
+            echo 'Credential scanner self-test failed for an unquoted API key.' >&2
+            exit 1
+          fi
+          if ! printf 'CODEX_RP_FIXTURE_API_KEY="%s"\n' "$fixture_token" | grep -qE "$pattern"; then
+            echo 'Credential scanner self-test failed for a quoted dynamic API key.' >&2
+            exit 1
+          fi
+          if grep -RIlE --exclude-dir=.git "$pattern" . >&2; then
             echo 'Potential credential found. Rotate it and remove it from Git history.' >&2
             exit 1
           fi

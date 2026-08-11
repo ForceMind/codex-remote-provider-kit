@@ -146,6 +146,9 @@ assert config["model"] == "official-model"
 assert config["model_reasoning_effort"] == "medium"
 assert "third_party" in config["model_providers"]
 PY
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status \
+  > "$test_dir/status-baseline.log"
+grep -Fq '当前模式：baseline' "$test_dir/status-baseline.log"
 
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" third-party \
   > "$test_dir/third-party.log"
