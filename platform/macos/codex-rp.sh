@@ -23,7 +23,7 @@ Codex 远程模型服务工具（macOS）
   rotate-key    更新 macOS Keychain 中的第三方密钥
   shortcut      安装/刷新 Finder、Spotlight 和 Dock 可用的 .app 快捷入口
   restart-app   明确重启 ChatGPT 桌面应用以加载新配置
-  rollback      恢复安装前配置并删除 Keychain 密钥
+  rollback      移除本工具配置并删除 Keychain 密钥
 
 安装选项：
   --base-url URL       第三方 Responses API Base URL（必须是 HTTPS）
@@ -115,9 +115,17 @@ strip_managed_block() {
   local provider_id=${3:?provider id required}
   awk -v begin="# BEGIN codex-remote-provider-kit:$provider_id" \
       -v end="# END codex-remote-provider-kit:$provider_id" '
-    $0 == begin { skip=1; next }
+    $0 == begin {
+      if (have_pending && pending != "") print pending
+      have_pending=0
+      skip=1
+      next
+    }
     $0 == end { skip=0; next }
-    !skip { print }
+    skip { next }
+    have_pending { print pending }
+    { pending=$0; have_pending=1 }
+    END { if (have_pending) print pending }
   ' "$source_file" > "$target_file"
 }
 
@@ -162,14 +170,18 @@ remove_top_level_key_portable() {
 top_level_string() {
   local target=${1:?config file required}
   local key=${2:?key required}
+  [[ -f "$target" ]] || return 0
   awk -v key="$key" '
     BEGIN { in_top=1 }
     in_top && /^[[:space:]]*\[/ { exit }
     in_top && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
       line=$0
-      sub("^[[:space:]]*" key "[[:space:]]*=[[:space:]]*\"", "", line)
-      sub("\"[[:space:]]*([#].*)?$", "", line)
-      print line
+      sub("^[[:space:]]*" key "[[:space:]]*=[[:space:]]*", "", line)
+      quote=substr(line, 1, 1)
+      if (quote != "\"" && quote != "\047") exit
+      line=substr(line, 2)
+      end=index(line, quote)
+      if (end > 0) print substr(line, 1, end - 1)
       exit
     }
   ' "$target"
@@ -228,6 +240,29 @@ restore_top_level_assignment_from_backup() {
   mv -f "$temp_file" "$target"
 }
 
+capture_top_level_defaults() {
+  local source=${1:?source config required}
+  local target=${2:?target defaults required}
+  local temp_file key assignment
+  temp_file=$(make_target_temp "$target")
+  : > "$temp_file"
+  for key in model_provider model model_reasoning_effort; do
+    if assignment=$(top_level_assignment "$source" "$key"); then
+      printf '%s\n' "$assignment" >> "$temp_file"
+    fi
+  done
+  chmod 600 "$temp_file"
+  mv -f "$temp_file" "$target"
+}
+
+official_defaults_file() {
+  if [[ -f "$active_dir/official-defaults.toml" ]]; then
+    printf '%s\n' "$active_dir/official-defaults.toml"
+  else
+    printf '%s\n' "$active_dir/backup/config.toml"
+  fi
+}
+
 set_third_party_defaults() {
   local selected_provider=${1:?provider required}
   local selected_model=${2:?model required}
@@ -249,8 +284,9 @@ set_third_party_defaults() {
 }
 
 restore_official_defaults() {
-  local backup_file="$active_dir/backup/config.toml"
+  local backup_file
   local key work_file
+  backup_file=$(official_defaults_file)
   mkdir -p "$codex_home"
   work_file=$(make_target_temp "$config_file")
   if ! {
@@ -266,17 +302,60 @@ restore_official_defaults() {
   fi
 }
 
-official_defaults_match() {
-  local backup_file="$active_dir/backup/config.toml"
-  local key current_assignment backup_assignment current_present backup_present
-  for key in model_provider model model_reasoning_effort; do
-    current_present=no
-    backup_present=no
-    if current_assignment=$(top_level_assignment "$config_file" "$key"); then current_present=yes; fi
-    if backup_assignment=$(top_level_assignment "$backup_file" "$key"); then backup_present=yes; fi
-    [[ "$current_present" == "$backup_present" ]] || return 1
-    [[ "$current_present" == no || "$current_assignment" == "$backup_assignment" ]] || return 1
-  done
+third_party_defaults_match() {
+  [[ -f "$config_file" ]] || return 1
+  [[ $(top_level_string "$config_file" model_provider) == "$provider_id" ]] \
+    && [[ $(top_level_string "$config_file" model) == "$model" ]] \
+    && [[ $(top_level_string "$config_file" model_reasoning_effort) == "$reasoning" ]]
+}
+
+official_provider_selected() {
+  local selected_provider selected_assignment
+  if [[ -f "$config_file" ]] \
+      && grep -Eq '^[[:space:]]*\[model_providers\.openai\][[:space:]]*$' "$config_file"; then
+    return 1
+  fi
+  selected_provider=$(top_level_string "$config_file" model_provider)
+  if selected_assignment=$(top_level_assignment "$config_file" model_provider); then
+    [[ "$selected_provider" == openai ]]
+  else
+    [[ -z "$selected_provider" ]]
+  fi
+}
+
+current_config_mode() {
+  if third_party_defaults_match; then
+    CODEX_RP_CONFIG_MODE='third-party'
+  elif official_provider_selected; then
+    CODEX_RP_CONFIG_MODE='official'
+  else
+    CODEX_RP_CONFIG_MODE='external'
+  fi
+}
+
+restore_config_for_rollback() {
+  local mode=${1:?config mode required}
+  local config_existed=${2:?config existence required}
+  local backup_file
+  local work_file stripped_file key
+  mkdir -p "$codex_home"
+  backup_file=$(official_defaults_file)
+  work_file=$(make_target_temp "$config_file")
+  stripped_file=$(make_temp)
+  if [[ -f "$config_file" ]]; then cp "$config_file" "$work_file"; else : > "$work_file"; fi
+  strip_managed_block "$work_file" "$stripped_file" "$provider_id"
+  mv -f "$stripped_file" "$work_file"
+  if [[ "$mode" == 'third-party' ]]; then
+    for key in model_provider model model_reasoning_effort; do
+      restore_top_level_assignment_from_backup "$work_file" "$backup_file" "$key"
+    done
+  fi
+  if [[ "$config_existed" == no ]] && ! grep -q '[^[:space:]]' "$work_file"; then
+    rm -f "$work_file" "$config_file"
+  else
+    chmod 600 "$work_file"
+    mv -f "$work_file" "$config_file"
+  fi
 }
 
 load_state() {
@@ -302,6 +381,96 @@ keychain_store() {
   local value=${3:?keychain value required}
   printf 'add-generic-password -U -a %s -s %s -w %s\n' \
     "$account" "$service" "$value" | "$security_bin" -i >/dev/null
+}
+
+render_managed_provider_block() {
+  local escaped_security
+  escaped_security=$(toml_escape "$security_bin")
+  cat <<EOF
+# BEGIN codex-remote-provider-kit:$provider_id
+[model_providers.$provider_id]
+name = "$provider_id"
+base_url = "$base_url"
+wire_api = "responses"
+
+[model_providers.$provider_id.auth]
+command = "$escaped_security"
+args = ["find-generic-password", "-a", "$keychain_account", "-s", "$keychain_service", "-w"]
+# END codex-remote-provider-kit:$provider_id
+EOF
+}
+
+managed_provider_block_matches() {
+  local begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
+  local end_marker="# END codex-remote-provider-kit:$provider_id"
+  local actual_block expected_block stripped_file matches='no'
+  [[ -f "$config_file" ]] || return 1
+  [[ $(grep -Fxc "$begin_marker" "$config_file") == 1 ]] || return 1
+  [[ $(grep -Fxc "$end_marker" "$config_file") == 1 ]] || return 1
+  actual_block=$(make_temp)
+  expected_block=$(make_temp)
+  stripped_file=$(make_temp)
+  awk -v begin="$begin_marker" -v end="$end_marker" '
+    $0 == begin { capture=1 }
+    capture { print }
+    $0 == end && capture { exit }
+  ' "$config_file" > "$actual_block"
+  render_managed_provider_block > "$expected_block"
+  strip_managed_block "$config_file" "$stripped_file" "$provider_id"
+  if cmp -s "$actual_block" "$expected_block" \
+      && ! grep -Eq "^[[:space:]]*\[model_providers\.${provider_id}\][[:space:]]*$" \
+        "$stripped_file"; then
+    matches='yes'
+  fi
+  rm -f "$actual_block" "$expected_block" "$stripped_file"
+  [[ "$matches" == yes ]]
+}
+
+unmanaged_provider_definition_exists() {
+  local stripped_file found='no'
+  [[ -f "$config_file" ]] || return 1
+  stripped_file=$(make_temp)
+  strip_managed_block "$config_file" "$stripped_file" "$provider_id"
+  if grep -Eq "^[[:space:]]*\[model_providers\.${provider_id}\][[:space:]]*$" \
+      "$stripped_file"; then
+    found='yes'
+  fi
+  rm -f "$stripped_file"
+  [[ "$found" == yes ]]
+}
+
+require_managed_provider_block() {
+  managed_provider_block_matches && return 0
+  die "Provider $provider_id 的受管配置已被 CC Switch 或其他工具删除/修改；已拒绝继续，请先切回官方配置后执行 rollback 或重新安装"
+}
+
+rollback_config_is_safe() {
+  local begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
+  local end_marker="# END codex-remote-provider-kit:$provider_id"
+  managed_provider_block_matches && return 0
+  [[ ! -f "$config_file" ]] && return 0
+  grep -Fxq "$begin_marker" "$config_file" && return 1
+  grep -Fxq "$end_marker" "$config_file" && return 1
+  unmanaged_provider_definition_exists && return 1
+  return 0
+}
+
+managed_profile_matches() {
+  local expected_profile
+  [[ ! -e "$profile_file" ]] && return 0
+  [[ -f "$profile_file" ]] || return 1
+  expected_profile=$(make_temp)
+  cat > "$expected_profile" <<EOF
+model = "$model"
+model_provider = "$provider_id"
+model_reasoning_effort = "$reasoning"
+EOF
+  if cmp -s "$profile_file" "$expected_profile"; then
+    rm -f "$expected_profile"
+    return 0
+  fi
+  rm -f "$expected_profile"
+  return 1
 }
 
 ensure_launcher() {
@@ -485,14 +654,34 @@ ensure_codex() {
   codex_bin=$(find_codex '') || die 'Codex 安装完成，但仍未找到 codex 命令'
 }
 
+require_official_install_context() {
+  local selected_provider login_status confirmation
+  selected_provider=$(top_level_string "$config_file" model_provider)
+  if ! official_provider_selected; then
+    die "当前不是可验证的 OpenAI 官方配置（model_provider=${selected_provider:-<unknown>}，或存在自定义 openai provider）。请先在 CC Switch 中切换到官方配置，再重新安装"
+  fi
+  login_status=$({ "$codex_bin" login status 2>&1 || true; })
+  [[ "$login_status" == *'Logged in using ChatGPT'* ]] \
+    || die '未确认 ChatGPT 官方登录。请先恢复官方配置并使用 ChatGPT 登录 Codex'
+  printf '官方配置预检：通过（model_provider=%s，ChatGPT 登录有效）。\n' \
+    "${selected_provider:-openai/default}"
+  printf '重要：安装后不要让 CC Switch 与本工具同时切换；本工具检测到外部 provider 时会拒绝覆盖。\n'
+  if [[ -t 0 && ${CODEX_RP_TEST_MODE:-0} != 1 ]]; then
+    printf '请输入 OFFICIAL 确认已在 CC Switch 中切回官方配置：'
+    read -r confirmation
+    [[ "$confirmation" == OFFICIAL ]] || die '未确认官方配置，安装已取消'
+  fi
+}
+
 install_provider() {
   local base_url='' model='gpt-5.6-sol' provider_id='third_party'
   local reasoning='high' codex_override='' api_key='' input
   local staging_dir source_config stripped_config new_config profile_temp
   local keychain_service keychain_account
-  local config_existed='no' profile_existed='no' profile_file escaped_security
+  local config_existed='no' profile_existed='no' profile_file
   local launcher_existed='no' launcher_changed='no' keychain_written='no'
   local app_launcher_existed='no' app_launcher_changed='no'
+  local config_written='no' profile_written='no'
 
   while (($#)); do
     case "$1" in
@@ -520,14 +709,28 @@ install_provider() {
   validate_base_url "$base_url" || die 'Base URL 必须是非示例 HTTPS 地址，且不能包含凭据、查询或片段'
 
   ensure_codex "$codex_override"
+  require_official_install_context
   check_launcher_target
   migrate_legacy_app_launcher
   check_app_launcher_target
+  profile_file="$codex_home/$provider_id.config.toml"
+  [[ ! -e "$profile_file" ]] \
+    || die "$profile_file 已存在；为避免覆盖 CC Switch 或其他工具的 profile，请改用其他 Provider ID"
+  if [[ -f "$config_file" ]] \
+      && { grep -Fxq "# BEGIN codex-remote-provider-kit:$provider_id" "$config_file" \
+        || grep -Fxq "# END codex-remote-provider-kit:$provider_id" "$config_file"; }; then
+    die "检测到 Provider $provider_id 的残留受管标记；已拒绝自动清理，请先确认配置所有权"
+  fi
+  if [[ -f "$config_file" ]] \
+      && grep -Eq "^[[:space:]]*\[model_providers\.${provider_id}\][[:space:]]*$" \
+        "$config_file"; then
+    die "配置已定义 model_providers.${provider_id}；为避免覆盖 CC Switch 或其他工具，请改用其他 Provider ID"
+  fi
   keychain_service="codex-remote-provider-kit:$provider_id"
   keychain_account=$provider_id
   if "$security_bin" find-generic-password -a "$keychain_account" \
       -s "$keychain_service" >/dev/null 2>&1; then
-    die "Keychain 已存在同名条目：$keychain_service；请先确认或回滚"
+    die "Keychain 已存在同名条目：${keychain_service}；请先确认或回滚"
   fi
 
   api_key=${THIRD_PARTY_API_KEY-}
@@ -545,11 +748,12 @@ install_provider() {
   [[ ! -e "$staging_dir" ]] || die '发现残留的安装暂存目录'
   mkdir -p "$staging_dir/backup"
   chmod 700 "$staging_dir" "$staging_dir/backup"
-  profile_file="$codex_home/$provider_id.config.toml"
-
   if [[ -f "$config_file" ]]; then
     config_existed='yes'
     cp -p "$config_file" "$staging_dir/backup/config.toml"
+  else
+    : > "$staging_dir/backup/config.toml"
+    chmod 600 "$staging_dir/backup/config.toml"
   fi
   if [[ -f "$profile_file" ]]; then
     profile_existed='yes'
@@ -570,6 +774,11 @@ install_provider() {
   else
     : > "$source_config"
   fi
+  if grep -Fxq "# BEGIN codex-remote-provider-kit:$provider_id" "$source_config" \
+      || grep -Fxq "# END codex-remote-provider-kit:$provider_id" "$source_config"; then
+    die "检测到 Provider $provider_id 的受管标记在安装期间出现；已取消安装且不会覆盖外部更改"
+  fi
+  capture_top_level_defaults "$source_config" "$staging_dir/official-defaults.toml"
   stripped_config=$(make_temp)
   new_config=$(make_temp)
   profile_temp=$(make_temp)
@@ -586,20 +795,8 @@ install_provider() {
   set_top_level_string_portable "$new_config" model_provider "$provider_id"
   set_top_level_string_portable "$new_config" model "$model"
   set_top_level_string_portable "$new_config" model_reasoning_effort "$reasoning"
-  escaped_security=$(toml_escape "$security_bin")
-  cat >> "$new_config" <<EOF
-
-# BEGIN codex-remote-provider-kit:$provider_id
-[model_providers.$provider_id]
-name = "$provider_id"
-base_url = "$base_url"
-wire_api = "responses"
-
-[model_providers.$provider_id.auth]
-command = "$escaped_security"
-args = ["find-generic-password", "-a", "$keychain_account", "-s", "$keychain_service", "-w"]
-# END codex-remote-provider-kit:$provider_id
-EOF
+  printf '\n' >> "$new_config"
+  render_managed_provider_block >> "$new_config"
   cat > "$profile_temp" <<EOF
 model = "$model"
 model_provider = "$provider_id"
@@ -632,15 +829,19 @@ EOF
           -s "$keychain_service" >/dev/null 2>&1 \
           || recovery_failed='yes'
       fi
-      if [[ "$config_existed" == yes ]]; then
-        cp -p "$staging_dir/backup/config.toml" "$config_file" || recovery_failed='yes'
-      else
-        rm -f "$config_file" || recovery_failed='yes'
+      if [[ "$config_written" == yes ]]; then
+        if [[ "$config_existed" == yes ]]; then
+          cp -p "$staging_dir/backup/config.toml" "$config_file" || recovery_failed='yes'
+        else
+          rm -f "$config_file" || recovery_failed='yes'
+        fi
       fi
-      if [[ "$profile_existed" == yes ]]; then
-        cp -p "$staging_dir/backup/profile.config.toml" "$profile_file" || recovery_failed='yes'
-      else
-        rm -f "$profile_file" || recovery_failed='yes'
+      if [[ "$profile_written" == yes ]]; then
+        if [[ "$profile_existed" == yes ]]; then
+          cp -p "$staging_dir/backup/profile.config.toml" "$profile_file" || recovery_failed='yes'
+        else
+          rm -f "$profile_file" || recovery_failed='yes'
+        fi
       fi
       if [[ "$launcher_changed" == yes ]]; then
         if [[ "$launcher_existed" == yes ]]; then
@@ -681,8 +882,17 @@ EOF
   keychain_written='yes'
   keychain_store "$keychain_account" "$keychain_service" "$api_key"
   api_key=''
+  if [[ "$config_existed" == yes ]]; then
+    cmp -s "$config_file" "$source_config" \
+      || die '检测到配置在安装期间被 CC Switch 或其他工具修改；已取消安装且不会覆盖外部更改'
+  else
+    [[ ! -e "$config_file" ]] \
+      || die '检测到配置在安装期间由其他工具创建；已取消安装且不会覆盖外部更改'
+  fi
   install -m 600 "$new_config" "$config_file"
+  config_written='yes'
   install -m 600 "$profile_temp" "$profile_file"
+  profile_written='yes'
   ensure_launcher
   launcher_changed='yes'
   ensure_app_launcher
@@ -701,15 +911,40 @@ EOF
 }
 
 use_third_party() {
+  local mode
   load_state
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  case "$mode" in
+    third-party)
+      printf '当前已经是本工具管理的第三方 provider。\n'
+      return 0
+      ;;
+    official) ;;
+    external)
+      die '检测到 CC Switch 或其他工具选择了外部 provider；已拒绝覆盖。请先在外部工具中切换到 OpenAI 官方配置'
+      ;;
+  esac
+  require_managed_provider_block
+  capture_top_level_defaults "$config_file" "$active_dir/official-defaults.toml"
   set_third_party_defaults "$provider_id" "$model" "$reasoning"
   printf '已切换配置到第三方 provider：%s / %s。\n' "$provider_id" "$model"
   printf '未重启 ChatGPT，也未修改账号或 Remote 配对；请明确运行 codex-rp restart-app。\n'
 }
 
 use_official() {
-  local confirmation
+  local confirmation mode
   load_state
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  case "$mode" in
+    official)
+      printf '当前已经是 OpenAI 官方配置；未修改 CC Switch 或其他配置。\n'
+      return 0
+      ;;
+    third-party) ;;
+    external)
+      die '检测到 CC Switch 或其他工具选择了外部 provider；已拒绝覆盖。请先在外部工具中切换到 OpenAI 官方配置'
+      ;;
+  esac
   printf '此操作只恢复安装前的官方默认模型配置，可能使用官方额度。\n'
   printf '是否继续？[y/N]：'
   read -r confirmation
@@ -724,24 +959,24 @@ use_official() {
 }
 
 show_status() {
-  local actual_provider actual_model actual_reasoning keychain_status app_status login_status
+  local mode keychain_status app_status login_status provider_config_status
   load_state
-  actual_provider=$(top_level_string "$config_file" model_provider)
-  actual_model=$(top_level_string "$config_file" model)
-  actual_reasoning=$(top_level_string "$config_file" model_reasoning_effort)
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
   printf '[平台]\nmacOS\n'
   printf '[配置]\n'
-  if [[ "$actual_provider" == "$provider_id" ]]; then
-    printf '当前模式：third-party\n'
-    [[ "$actual_model" == "$model" ]] || die "模型不匹配：$actual_model"
-    [[ "$actual_reasoning" == "$reasoning" ]] || die "推理强度不匹配：$actual_reasoning"
-  elif official_defaults_match; then
-    printf '当前模式：official\n'
-  else
-    printf '当前模式：unmanaged\n'
-    die '三项顶层默认配置既不匹配第三方模式，也不匹配安装前官方模式'
-  fi
+  case "$mode" in
+    third-party) printf '当前模式：third-party\n' ;;
+    official) printf '当前模式：official\n' ;;
+    external)
+      printf '当前模式：external/unmanaged\n'
+      die '检测到 CC Switch 或其他工具选择了外部 provider；本工具不会覆盖该配置'
+      ;;
+  esac
   printf '用户配置：%s\n' "$config_file"
+  provider_config_status='缺失或已被外部修改'
+  managed_provider_block_matches && provider_config_status='完整'
+  printf '受管 provider 配置：%s\n' "$provider_config_status"
+  [[ "$provider_config_status" == '完整' ]] || return 1
 
   keychain_status='缺失'
   "$security_bin" find-generic-password -a "$keychain_account" \
@@ -767,10 +1002,12 @@ show_status() {
 }
 
 run_test() {
-  local actual_provider last_message
+  local mode last_message
   load_state
-  actual_provider=$(top_level_string "$config_file" model_provider)
-  [[ "$actual_provider" == "$provider_id" ]] || die '真实测试只在 third-party 模式运行'
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  [[ "$mode" == 'third-party' ]] \
+    || die '真实测试只在本工具管理的 third-party 模式运行；外部 provider 不会被覆盖'
+  require_managed_provider_block
   show_status
   last_message=$(make_temp)
   trap 'rm -f "$last_message"' EXIT
@@ -787,6 +1024,7 @@ run_test() {
 rotate_key() {
   local api_key=''
   load_state
+  require_managed_provider_block
   [[ -t 0 ]] || die '密钥轮换必须在交互式终端运行'
   read -rsp '请输入新的第三方 API 密钥（不会回显）：' api_key
   printf '\n'
@@ -822,9 +1060,16 @@ restart_app() {
 
 rollback_all() {
   local confirmation config_existed profile_existed launcher_existed
-  local app_launcher_existed timestamp target
+  local app_launcher_existed timestamp target mode
   load_state
-  printf '回滚会恢复安装前配置并删除本套件的 Keychain 密钥。请输入 ROLLBACK 继续：'
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  [[ "$mode" != external ]] \
+    || die '检测到 CC Switch 或其他工具选择了外部 provider；请先在外部工具中切换到 OpenAI 官方配置，再执行回滚'
+  rollback_config_is_safe \
+    || die "Provider $provider_id 的配置所有权不明确；已拒绝回滚，避免删除 CC Switch 管理的同名 provider"
+  managed_profile_matches \
+    || die "$profile_file 已被其他工具修改；已拒绝回滚，避免覆盖外部更改"
+  printf '回滚只移除本工具的配置和 Keychain 密钥，并保留其他 provider。请输入 ROLLBACK 继续：'
   read -r confirmation
   [[ "$confirmation" == ROLLBACK ]] || die '操作已取消'
   state_get config_existed; config_existed=$CODEX_RP_STATE_VALUE
@@ -846,11 +1091,7 @@ rollback_all() {
       && ! app_launcher_is_managed; then
     die "$app_launcher 已被替换为非套件内容，已拒绝覆盖"
   fi
-  if [[ "$config_existed" == yes ]]; then
-    cp -p "$active_dir/backup/config.toml" "$config_file"
-  else
-    rm -f "$config_file"
-  fi
+  restore_config_for_rollback "$mode" "$config_existed"
   if [[ "$profile_existed" == yes ]]; then
     cp -p "$active_dir/backup/profile.config.toml" "$profile_file"
   else
@@ -884,6 +1125,7 @@ show_menu() {
   ensure_app_launcher
   while true; do
     printf '\nCodex 远程模型服务工具（macOS）\n'
+    printf '重要：使用 CC Switch 时必须先切到 OpenAI 官方配置；检测到外部 provider 将拒绝写入。\n'
     printf '1) 安装第三方 provider\n2) 查看状态\n3) 完整测试\n'
     printf '4) 切换第三方\n5) 切换官方\n6) 轮换密钥\n'
     printf '7) 重启 ChatGPT 应用\n8) 完整回滚\n'

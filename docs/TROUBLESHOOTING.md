@@ -36,6 +36,17 @@ macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 Chat
 必须以实际登录 ChatGPT 的桌面用户在普通 Terminal 中运行，不要用 `sudo`。如果系统
 拒绝 Keychain 交互，请先确认登录钥匙串已经解锁，再重新执行安装。
 
+## macOS 提示检测到 CC Switch 或外部 provider
+
+这是写入保护，不是自动故障转移。先在 CC Switch 中明确切换到 OpenAI 官方配置，
+确认 `model_provider` 为 `openai` 或未设置，再重新执行原操作。不要直接删除 CC Switch
+配置，也不要让两个工具同时切换。
+
+如果 `status` 同时提示受管 provider 配置缺失或被修改，说明外部工具可能重写了
+本工具带标记的 provider 区块。保持官方模式并执行 `codex-rp rollback`；若回滚报告
+同名 provider 或 profile 所有权不明确，应先在 CC Switch 中把冲突项改名，不能强制
+覆盖。回滚会保留不冲突的其他 provider。
+
 ## macOS/Windows 切换后仍使用旧 provider
 
 桌面切换默认不会自动关闭 ChatGPT。运行 `codex-rp restart-app`，确认短暂断开后

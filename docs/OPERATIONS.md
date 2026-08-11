@@ -39,6 +39,30 @@ Windows 必须以实际登录 ChatGPT 的普通桌面用户运行；DPAPI 密文
 管理员账户代为解密。macOS 同样应使用实际桌面用户，以便 `auth.command` 访问正确
 Keychain。三项默认配置在两个平台都作为一次事务更新。
 
+## macOS 与 CC Switch 共存
+
+本工具和 CC Switch 都会修改用户级 `~/.codex/config.toml`。安装前必须先在
+CC Switch 中切换到 OpenAI 官方配置；本工具把“顶层 `model_provider` 未设置或等于
+`openai`，且 Codex 使用 ChatGPT 登录”判定为可安装的官方状态。检测不通过时会在
+读取第三方密钥前停止。
+
+安装后遵循单一写入者原则，不要同时操作两个工具：
+
+1. 要使用本工具切换第三方时，先在 CC Switch 中切回官方，再运行
+   `codex-rp third-party`。
+2. 如果 CC Switch 已选择其他 provider，本工具的切换、测试和回滚会拒绝覆盖，
+   `status` 显示 `external/unmanaged`。
+3. 回滚只删除本工具带标记的 provider 区块，并保留后来新增的其他 provider。
+4. 如果 CC Switch 改写了本工具的同名 provider 或专用 profile，必须先处理命名冲突；
+   本工具不会猜测所有权或自动删除。
+
+每次从官方状态执行 `codex-rp third-party` 时，本工具都会保存当时最新的三项官方
+默认值。因此 CC Switch 在安装后调整的官方模型或推理强度，会在下一次
+`codex-rp official` 或回滚时恢复，而不是被安装时的旧快照覆盖。
+
+配置写入使用同目录临时文件原子替换，但 CC Switch 不共享本工具的锁或状态，因此
+不能安全地同时点击切换。最后一次完成写入的工具决定新任务使用哪个 provider。
+
 ## 一键安装和统一入口
 
 新服务器克隆仓库后执行：

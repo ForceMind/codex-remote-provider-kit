@@ -110,6 +110,80 @@ common_env=(
   MOCK_KEYCHAIN_FILE="$mock_keychain"
 )
 
+set_top_level_for_test() {
+  local target=${1:?target required}
+  local key=${2:?key required}
+  local value=${3:?value required}
+  local temp_file="$target.test-new"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { in_top=1 }
+    in_top && /^[[:space:]]*\[/ { in_top=0 }
+    in_top && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      print key " = \"" value "\""
+      next
+    }
+    { print }
+  ' "$target" > "$temp_file"
+  mv -f "$temp_file" "$target"
+}
+
+cat > "$config_file" <<'EOF'
+model_provider = "cc_switch_proxy"
+model = "cc-switch-model"
+model_reasoning_effort = "low"
+
+[model_providers.cc_switch_proxy]
+name = "CC Switch test provider"
+base_url = "https://cc-switch.test/v1"
+wire_api = "responses"
+EOF
+cp "$config_file" "$test_dir/external-before-install.toml"
+if env "${common_env[@]}" THIRD_PARTY_API_KEY='test_token' \
+  bash "$repo_dir/platform/macos/codex-rp.sh" install \
+    --base-url https://gateway.test/v1 --codex-bin "$mock_codex" \
+    > "$test_dir/external-install.log" 2>&1; then
+  printf 'macOS 安装器错误接受了 CC Switch 外部 provider\n' >&2
+  exit 1
+fi
+grep -Fq '请先在 CC Switch 中切换到官方配置' \
+  "$test_dir/external-install.log"
+cmp -s "$config_file" "$test_dir/external-before-install.toml"
+[[ ! -e "$mock_keychain" ]]
+cp "$original_config" "$config_file"
+
+cat >> "$config_file" <<'EOF'
+
+[model_providers.third_party]
+name = "CC Switch conflicting provider"
+base_url = "https://cc-switch-conflict.test/v1"
+wire_api = "responses"
+EOF
+if env "${common_env[@]}" THIRD_PARTY_API_KEY='test_token' \
+  bash "$repo_dir/platform/macos/codex-rp.sh" install \
+    --base-url https://gateway.test/v1 --codex-bin "$mock_codex" \
+    > "$test_dir/provider-collision.log" 2>&1; then
+  printf 'macOS 安装器错误覆盖了 CC Switch 同名 provider\n' >&2
+  exit 1
+fi
+grep -Fq '请改用其他 Provider ID' "$test_dir/provider-collision.log"
+[[ ! -e "$mock_keychain" ]]
+cp "$original_config" "$config_file"
+
+profile_file="$test_dir/home/.codex/third_party.config.toml"
+printf 'CC Switch profile sentinel\n' > "$profile_file"
+if env "${common_env[@]}" THIRD_PARTY_API_KEY='test_token' \
+  bash "$repo_dir/platform/macos/codex-rp.sh" install \
+    --base-url https://gateway.test/v1 --codex-bin "$mock_codex" \
+    > "$test_dir/profile-collision.log" 2>&1; then
+  printf 'macOS 安装器错误覆盖了 CC Switch 同名 profile\n' >&2
+  exit 1
+fi
+grep -Fq '为避免覆盖 CC Switch 或其他工具的 profile' \
+  "$test_dir/profile-collision.log"
+grep -Fxq 'CC Switch profile sentinel' "$profile_file"
+[[ ! -e "$mock_keychain" ]]
+rm -f "$profile_file"
+
 if env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" install \
   --base-url https://api.example.com/v1 --codex-bin "$mock_codex" \
   > "$test_dir/example-url.log" 2>&1; then
@@ -124,6 +198,8 @@ env "${common_env[@]}" THIRD_PARTY_API_KEY='test_token' \
     --provider-id third_party \
     --reasoning high \
     --codex-bin "$mock_codex" > "$test_dir/install.log"
+grep -Fq '官方配置预检：通过' "$test_dir/install.log"
+grep -Fq '检测到外部 provider 时会拒绝覆盖' "$test_dir/install.log"
 
 [[ -x "$test_dir/bin/codex-rp" ]]
 app_bundle="$test_dir/home/Applications/Codex 远程模型服务工具.app"
@@ -175,6 +251,31 @@ printf '2\n0\n' | env "${common_env[@]}" \
 [[ $(grep -Fc 'Codex 远程模型服务工具（macOS）' "$test_dir/menu-success.log") -eq 2 ]]
 grep -Fq '操作完成，已返回主菜单。' "$test_dir/menu-success.log"
 
+cp "$config_file" "$test_dir/managed-before-external-switch.toml"
+set_top_level_for_test "$config_file" model_provider cc_switch_proxy
+set_top_level_for_test "$config_file" model cc-switch-model
+set_top_level_for_test "$config_file" model_reasoning_effort low
+cp "$config_file" "$test_dir/external-after-install.toml"
+if env "${common_env[@]}" \
+  bash "$repo_dir/platform/macos/codex-rp.sh" third-party \
+  > "$test_dir/external-third-party.log" 2>&1; then
+  printf 'macOS 切换错误覆盖了 CC Switch 外部 provider\n' >&2
+  exit 1
+fi
+grep -Fq '检测到 CC Switch 或其他工具选择了外部 provider' \
+  "$test_dir/external-third-party.log"
+cmp -s "$config_file" "$test_dir/external-after-install.toml"
+if printf 'ROLLBACK\n' | env "${common_env[@]}" \
+  bash "$repo_dir/platform/macos/codex-rp.sh" rollback \
+  > "$test_dir/external-rollback.log" 2>&1; then
+  printf 'macOS 回滚错误覆盖了 CC Switch 外部 provider\n' >&2
+  exit 1
+fi
+grep -Fq '请先在外部工具中切换到 OpenAI 官方配置' \
+  "$test_dir/external-rollback.log"
+cmp -s "$config_file" "$test_dir/external-after-install.toml"
+cp "$test_dir/managed-before-external-switch.toml" "$config_file"
+
 printf 'y\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" official > "$test_dir/official.log"
 grep -Fxq "model_provider = 'openai'" "$config_file"
@@ -182,11 +283,29 @@ grep -Fxq 'model = "official-model"' "$config_file"
 grep -Fxq 'model_reasoning_effort = "medium"' "$config_file"
 grep -Fxq '[model_providers.third_party]' "$config_file"
 
+set_top_level_for_test "$config_file" model cc-official-model
+set_top_level_for_test "$config_file" model_reasoning_effort low
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" third-party \
   > "$test_dir/third-party.log"
+printf 'y\n' | env "${common_env[@]}" \
+  bash "$repo_dir/platform/macos/codex-rp.sh" official \
+  > "$test_dir/official-latest.log"
+grep -Fxq "model_provider = 'openai'" "$config_file"
+grep -Fxq 'model = "cc-official-model"' "$config_file"
+grep -Fxq 'model_reasoning_effort = "low"' "$config_file"
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" third-party \
+  > "$test_dir/third-party-latest.log"
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" test \
   > "$test_dir/test.log"
 grep -Fq 'Codex 回复：OK' "$test_dir/test.log"
+
+cat >> "$config_file" <<'EOF'
+
+[model_providers.cc_switch_saved]
+name = "CC Switch saved provider"
+base_url = "https://cc-switch-saved.test/v1"
+wire_api = "responses"
+EOF
 
 printf 'RESTART_APP\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" restart-app > "$test_dir/restart.log"
@@ -194,7 +313,14 @@ grep -Fq '已模拟重启 ChatGPT' "$test_dir/restart.log"
 
 printf 'ROLLBACK\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" rollback > "$test_dir/rollback.log"
-cmp -s "$config_file" "$original_config"
+grep -Fxq "model_provider = 'openai'" "$config_file"
+grep -Fxq 'model = "cc-official-model"' "$config_file"
+grep -Fxq 'model_reasoning_effort = "low"' "$config_file"
+grep -Fxq '[features]' "$config_file"
+grep -Fxq '[model_providers.cc_switch_saved]' "$config_file"
+grep -Fxq 'base_url = "https://cc-switch-saved.test/v1"' "$config_file"
+! grep -Fq 'codex-remote-provider-kit:third_party' "$config_file"
+! grep -Fxq '[model_providers.third_party]' "$config_file"
 [[ ! -e "$mock_keychain" ]]
 [[ ! -e "$test_dir/data/active" ]]
 [[ ! -e "$test_dir/bin/codex-rp" ]]

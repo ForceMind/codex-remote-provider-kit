@@ -202,6 +202,14 @@ curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit
 安装器会在缺少 Codex CLI 时调用 OpenAI 官方独立安装器，然后通过中文面板读取
 第三方参数。密钥保存在当前用户 Keychain，配置中的 `auth.command` 会调用
 `/usr/bin/security` 读取令牌；不会把密钥写入 TOML。
+
+如果已经使用 CC Switch 或其他 Codex provider 管理工具，安装前必须先在该工具中
+切换到 OpenAI 官方配置。macOS 安装器会在读取 API 密钥前自动检查：顶层
+`model_provider` 只能未设置或为 `openai`，并且 `codex login status` 必须确认使用
+ChatGPT 登录；检测到外部 provider 时会直接停止，不覆盖现有配置。交互安装还要求
+输入 `OFFICIAL` 确认。Provider ID 或专用 profile 与现有工具冲突时，也会在读取密钥
+前停止并要求更换 ID。安装后不要让两个工具同时执行切换。
+
 首次打开面板还会创建
 `~/Applications/Codex 远程模型服务工具.app`，可从 Finder 或 Spotlight 直接双击，
 也可拖到 Dock。应用使用项目原创的终端箭头/远程连接图标，并内置完整
@@ -229,6 +237,11 @@ codex-rp test
 手机上新建会话，不要复用切换前仍有活跃写入者的会话。
 完整回滚会同时恢复或移除套件管理的 `~/.local/bin/codex-rp`，不会改动
 同目录中的其他命令；受管的 `.app` 快捷入口也会同步恢复或移除。
+macOS 回滚只撤销本工具拥有的 provider 区块和顶层选择，保留安装后由 CC Switch
+新增的其他 provider。若同名 provider 或专用 profile 已被外部工具改写，回滚会
+拒绝继续，避免误删外部配置。
+每次从官方状态切到本工具第三方前，还会刷新最近一次官方默认值；后续切回官方或
+回滚时使用这份最新快照，不会退回安装时已经过时的官方模型选择。
 
 ## Windows 原生安装与 Remote
 
