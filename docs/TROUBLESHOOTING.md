@@ -11,6 +11,41 @@ sudo systemctl status codex-remote-provider.service --no-pager
 `codex-remote-official.service`；若两个 unit 同时 active 或都未运行，状态检查会
 明确失败，而不是误报第三方可用。
 
+## 切换后显示 `ActiveState=failed`
+
+这表示目标 Remote unit 确实启动失败，不能把之前的“已启动”文案当作
+成功。更新后的脚本会在输出成功文案前同时检查 `ActiveState` 和 `Result`；
+目标 unit 异常时会报错并尝试恢复切换前的配置和服务模式。
+
+在切换或重试前先保留脱敏诊断信息：
+
+```bash
+sudo systemctl status codex-remote-official.service --no-pager -l
+sudo journalctl -u codex-remote-official.service -n 100 --no-pager
+codex --version
+codex login status
+```
+
+日志可能含主机名、用户目录或会话标识，对外提供前应脱敏；不要输出完整环境
+变量，也不要删除 Codex session 来规避故障。
+
+## 启动时自动更新失败
+
+自动更新默认为失败开放：下载、语法校验或事务替换失败时会显示警告，然后
+继续启动当前本地版本。先检查服务器是否可通过 HTTPS 访问 `raw.githubusercontent.com`
+和 `github.com`，以及安装目录的父目录是否可写。不要为此输出代理凭据或完整
+环境变量。
+
+需要在断网环境中直接打开面板时：
+
+```bash
+CODEX_RP_SKIP_AUTO_UPDATE=1 codex-rp
+```
+
+如果当前版本早于自动更新功能，它不会凭空获得新启动器；需先手工重跑一次
+README 中的在线安装命令。Git 工作区和手工解压目录没有在线安装源标识，
+因此不会自动更新。
+
 macOS/Windows 先运行 `codex-rp status`。Remote 宿主必须是最新版 ChatGPT 桌面
 应用，并与手机登录同一账号/workspace；移动端 Remote 配对需要从桌面应用的
 `Settings > Connections` 开始，不能用本工具替代官方配对流程。

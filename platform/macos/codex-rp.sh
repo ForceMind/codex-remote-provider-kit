@@ -10,6 +10,8 @@ usage() {
   cat <<'EOF'
 Codex 远程模型服务工具（macOS）
 
+通过在线安装器部署后，codex-rp 每次启动会先安全检查套件更新。
+
 用法：
   codex-rp [命令] [安装选项]
 
@@ -485,7 +487,9 @@ ensure_launcher() {
     {
       printf '#!/usr/bin/env bash\n'
       printf '%s\n' "$launcher_marker"
-      printf 'exec %q "$@"\n' "$script_dir/codex-rp.sh"
+      printf 'kit_dir=%q\n' "$repo_dir"
+      printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+      printf 'exec "$kit_dir/platform/macos/codex-rp.sh" "$@"\n'
     } > "$temp_file"
     chmod 755 "$temp_file"
     mv -f "$temp_file" "$launcher_file"
@@ -580,7 +584,9 @@ EOF
   cp -p "$icon_source" "$resources_dir/codex-rp.icns"
   {
     printf '#!/usr/bin/env bash\n'
-    printf 'exec %q menu\n' "$script_dir/codex-rp.sh"
+    printf 'kit_dir=%q\n' "$repo_dir"
+    printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+    printf 'exec "$kit_dir/platform/macos/codex-rp.sh" menu\n'
   } > "$resources_dir/launch.command"
   printf '%s\n' "$app_launcher_marker" > "$resources_dir/.codex-rp-managed"
   {

@@ -31,4 +31,31 @@ if grep -Fq 'EnvironmentFile=' "$official_unit"; then
 fi
 grep -Fxq 'ExecStart=/usr/local/bin/codex remote-control start --json' "$official_unit"
 
+mock_active_state=active
+mock_result=success
+systemctl() {
+  if [[ "$*" == *'--value'* ]]; then
+    if [[ "$*" == *'ActiveState'* ]]; then
+      printf '%s\n' "$mock_active_state"
+    elif [[ "$*" == *'Result'* ]]; then
+      printf '%s\n' "$mock_result"
+    fi
+  else
+    printf 'ActiveState=%s\nSubState=exited\nResult=%s\nExecMainStatus=0\n' \
+      "$mock_active_state" "$mock_result"
+  fi
+}
+
+require_active_systemd_unit codex-remote-official.service
+mock_active_state=failed
+mock_result=exit-code
+if require_active_systemd_unit codex-remote-official.service \
+    > "$test_dir/failed-unit.log" 2>&1; then
+  printf 'failed unit unexpectedly passed the post-start check\n' >&2
+  exit 1
+fi
+grep -Fq '启动后未保持正常状态' "$test_dir/failed-unit.log"
+grep -Fq 'journalctl -u codex-remote-official.service' \
+  "$test_dir/failed-unit.log"
+
 printf 'systemd unit generation: ok\n'

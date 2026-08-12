@@ -58,6 +58,7 @@ restore_remote_defaults "$CODEX_HOME_DIR/config.toml" "$BACKUP_DIR/config.toml"
 systemctl --quiet disable --now "$third_party_unit_name" >/dev/null 2>&1 || true
 "$CODEX_BIN_PATH" remote-control stop --json >/dev/null 2>&1 || true
 systemctl --quiet enable --now "$official_unit_name"
+require_active_systemd_unit "$official_unit_name"
 trap - ERR
 printf 'Remote 已使用常规/默认 Codex 供应商启动，并将在重启后保持官方模式。\n'
 systemctl show "$official_unit_name" -p ActiveState -p SubState -p Result --no-pager

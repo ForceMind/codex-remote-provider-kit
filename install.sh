@@ -26,6 +26,7 @@ archive_url=${CODEX_RP_ARCHIVE_URL:-https://github.com/${repo_slug}/archive/refs
 command -v curl >/dev/null 2>&1 || die '缺少 curl，请先安装后重试'
 command -v tar >/dev/null 2>&1 || die '缺少 tar，请先安装后重试'
 command -v bash >/dev/null 2>&1 || die '缺少 Bash，请先安装后重试'
+command -v cksum >/dev/null 2>&1 || die '缺少 cksum，请先安装后重试'
 case "$install_dir" in
   /|/opt|/usr|/root|/home) die '安装目录范围过大，已拒绝执行' ;;
   /*) ;;
@@ -59,6 +60,7 @@ trap cleanup 0
 archive_file="$temp_dir/source.tar.gz"
 say "正在下载 ${repo_slug}（${repo_ref}）……"
 curl -fsSL "$archive_url" -o "$archive_file"
+archive_source_id=$(cksum < "$archive_file")
 
 source_root=$(tar -tzf "$archive_file" | sed -n '1{s:/$::;p;}')
 [ -n "$source_root" ] || die '下载的压缩包结构无效'
@@ -69,31 +71,44 @@ esac
 tar -xzf "$archive_file" -C "$temp_dir"
 source_dir="$temp_dir/$source_root"
 [ -x "$source_dir/$platform_entry" ] || die "压缩包中缺少可执行的 $platform_entry"
+printf '%s\n' "$archive_source_id" > "$source_dir/.codex-rp-source-id"
 
-timestamp=$(date +%Y%m%d-%H%M%S)
-staging_dir="${install_parent}/.codex-remote-provider-kit.new-${timestamp}-$$"
-backup_dir="${install_dir}.backup-${timestamp}-$$"
-
-$run_as_root install -d -m 755 "$install_parent"
-$run_as_root install -d -m 755 "$staging_dir"
-$run_as_root cp -a "$source_dir/." "$staging_dir/"
-
-if $run_as_root test -e "$install_dir"; then
-  $run_as_root mv "$install_dir" "$backup_dir"
-  say "旧版本已备份到：$backup_dir"
+installed_source_id=''
+if $run_as_root test -f "$install_dir/.codex-rp-source-id"; then
+  installed_source_id=$($run_as_root sed -n '1p' "$install_dir/.codex-rp-source-id" 2>/dev/null || :)
 fi
+if [ "$installed_source_id" = "$archive_source_id" ]; then
+  say '当前已是最新套件版本。'
+else
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  staging_dir="${install_parent}/.codex-remote-provider-kit.new-${timestamp}-$$"
+  backup_dir="${install_dir}.backup-${timestamp}-$$"
 
-if ! $run_as_root mv "$staging_dir" "$install_dir"; then
-  if $run_as_root test -e "$backup_dir"; then
-    $run_as_root mv "$backup_dir" "$install_dir"
+  $run_as_root install -d -m 755 "$install_parent"
+  $run_as_root install -d -m 755 "$staging_dir"
+  $run_as_root cp -a "$source_dir/." "$staging_dir/"
+
+  if $run_as_root test -e "$install_dir"; then
+    $run_as_root mv "$install_dir" "$backup_dir"
+    say "旧版本已备份到：$backup_dir"
   fi
-  die '安装目录替换失败，已尝试恢复旧版本'
+
+  if ! $run_as_root mv "$staging_dir" "$install_dir"; then
+    if $run_as_root test -e "$backup_dir"; then
+      $run_as_root mv "$backup_dir" "$install_dir"
+    fi
+    die '安装目录替换失败，已尝试恢复旧版本'
+  fi
 fi
 
 say "工具已安装到：$install_dir"
 say '完成首次面板初始化后，可在任意目录运行：codex-rp'
 
-if [ "${CODEX_RP_NO_LAUNCH:-0}" != 1 ] && ( : </dev/tty ) 2>/dev/null; then
+if [ "${CODEX_RP_NO_LAUNCH:-0}" = 1 ]; then
+  exit 0
+fi
+
+if ( : </dev/tty ) 2>/dev/null; then
   say '正在打开中文安装面板……'
   cleanup
   trap - 0

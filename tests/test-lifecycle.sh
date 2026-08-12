@@ -27,7 +27,16 @@ case ${1-} in
     printf 'enabled\n'
     ;;
   show)
-    printf 'ActiveState=active\nSubState=exited\nResult=success\nUnitFileState=enabled\n'
+    if [[ "$*" == *'--value'* ]]; then
+      if [[ "$*" == *'ActiveState'* ]]; then
+        printf '%s\n' "${MOCK_SHOW_ACTIVE_STATE:-active}"
+      elif [[ "$*" == *'Result'* ]]; then
+        printf '%s\n' "${MOCK_SHOW_RESULT:-success}"
+      fi
+    else
+      printf 'ActiveState=%s\nSubState=exited\nResult=%s\nUnitFileState=enabled\n' \
+        "${MOCK_SHOW_ACTIVE_STATE:-active}" "${MOCK_SHOW_RESULT:-success}"
+    fi
     ;;
 esac
 if [[ -n ${MOCK_FAIL_ENABLE_UNIT:-} \
@@ -201,6 +210,31 @@ switch_failure_status=$?
 set -e
 [[ $switch_failure_status != 0 ]]
 grep -Fq '已尝试恢复切换前配置和服务模式' "$test_dir/switch-failure.log"
+python3 - "$config_file" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    config = tomllib.load(handle)
+assert config["model_provider"] == "third_party"
+assert config["model"] == "gpt-5.6-sol"
+assert config["model_reasoning_effort"] == "high"
+PY
+grep -Fq "systemctl:start $third_party_name" "$mock_log"
+
+: > "$mock_log"
+set +e
+printf 'y\n' | env "${common_env[@]}" \
+  MOCK_ACTIVE_UNIT="$third_party_name" \
+  MOCK_ENABLED_UNIT="$third_party_name" \
+  MOCK_SHOW_ACTIVE_STATE=failed \
+  MOCK_SHOW_RESULT=exit-code \
+  bash "$repo_dir/use-official.sh" > "$test_dir/late-switch-failure.log" 2>&1
+late_switch_failure_status=$?
+set -e
+[[ $late_switch_failure_status != 0 ]]
+grep -Fq '启动后未保持正常状态' "$test_dir/late-switch-failure.log"
+grep -Fq 'journalctl -u' "$test_dir/late-switch-failure.log"
+grep -Fq '已尝试恢复切换前配置和服务模式' \
+  "$test_dir/late-switch-failure.log"
 python3 - "$config_file" <<'PY'
 import sys, tomllib
 with open(sys.argv[1], "rb") as handle:

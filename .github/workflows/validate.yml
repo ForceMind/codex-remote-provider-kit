@@ -49,6 +49,9 @@ jobs:
       - name: Test online installer
         shell: bash
         run: bash tests/test-online-installer.sh
+      - name: Test automatic updater
+        shell: bash
+        run: bash tests/test-auto-update.sh
       - name: Reject likely committed credentials
         shell: bash
         run: |

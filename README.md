@@ -13,7 +13,7 @@ workspace、设备配对和消息通道。
 |---|---|
 | 第一次安装 | 运行对应平台的在线安装命令，再按中文面板完成安装 |
 | macOS 旧版安装曾显示 `add-generic-password` 用法并失败 | **先重新运行在线安装命令刷新工具代码**，再选择 `1`；旧版已自动恢复时不需要先回滚 |
-| 已经成功安装，只是升级工具代码 | 重新运行在线安装命令；已有配置和系统凭据保留，不要再次选择“安装第三方 provider” |
+| 已经成功安装，只是升级工具代码 | 新版在每次启动 `codex-rp` 时自动检查 `main`；旧版需先手工重跑一次在线安装命令 |
 | macOS 只需要刷新中文名称或图标 | 更新工具后运行 `codex-rp shortcut`，必要时从 Dock 移除旧入口再重新拖入 |
 | macOS 正在使用 CC Switch | 安装或切换本工具第三方前，必须先在 CC Switch 中切回 OpenAI 官方配置 |
 
@@ -24,6 +24,7 @@ macOS 菜单中的每个操作完成或失败后都会回到主菜单；只有�
 ## 仓库内容
 
 - `install.sh`：供 `curl | sh` 使用的公开在线安装入口。
+- `auto-update.sh`：在受管启动器进入面板前安全检查并替换套件程序目录。
 - `install-windows.ps1`：供 Windows PowerShell 使用的公开在线安装入口。
 - `install-provider.sh`：安装第三方 provider、专用 systemd 服务和安全的密钥文件。
 - `install-codex.sh`：检查系统依赖，安装 Codex CLI 并引导 ChatGPT 登录。
@@ -104,8 +105,14 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 codex-rp
 ```
 
-从旧版本升级时，在仓库中运行一次新版 `./panel.sh` 即可补装该命令，不需要回滚、
-重新安装或重新输入 API 密钥。
+由在线安装器部署的 Linux/macOS 版本会在每次启动 `codex-rp` 时先下载并
+比较 `main` 归档。源标识一致时不替换目录、不生成重复备份；只有确认是新版本
+时才事务替换程序目录。下载或更新失败会明确警告，然后继续使用当前
+版本进入面板；不会读取或改写 API 密钥，不切换 provider，不重启 Remote。
+
+自动更新只会处理带有在线安装源标识的受管目录；Git 克隆的开发工作区和
+手工解压目录不会被自动覆盖。从不含该功能的旧版升级时，需先重新运行一次
+本 README 的在线安装命令，之后启动器才能自动更新。
 
 Linux 安装会创建第三方 `codex-remote-provider.service` 和官方
 `codex-remote-official.service`，并且始终只启用其中一个。首次安装立即启用第三方
@@ -125,7 +132,8 @@ curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit
 
 Linux 安装到 `/opt/codex-remote-provider-kit`；macOS 安装到当前用户的
 `~/Library/Application Support/CodexRemoteProviderKit/app`。升级时先备份旧目录，
-然后打开中文面板。若希望先审查脚本，可以先下载 `install.sh`，阅读后再执行。
+然后打开中文面板。后续直接运行 `codex-rp` 会先自动检查更新。若希望先审查脚本，
+可以先下载 `install.sh`，阅读后再执行。
 
 推荐直接把本目录旁的压缩包复制到新机器，这样目标机不需要预装 Git：
 
@@ -228,9 +236,9 @@ curl -fsSL https://raw.githubusercontent.com/ForceMind/codex-remote-provider-kit
 5. 依次选择 `2` 查看状态、`7` 重启 ChatGPT 应用、`3` 完成真实调用测试。
 6. 从手机新建会话验证；不要继续使用切换前仍有活跃写入者的会话。
 
-如果只是把已经成功安装的工具升级到最新版，重新运行在线安装命令即可；安装器会
-备份并替换程序目录，同时保留独立存放的活动配置和 Keychain 凭据。进入面板后不要
-再次选择 `1`，直接运行状态检查或日常操作。
+已经包含自动更新器时，直接运行 `codex-rp` 即可升级到最新版。只有从不含该功能
+的旧版升级，才需手工重新运行一次在线安装命令。活动配置和 Keychain 凭据
+独立保留；进入面板后不要再次选择 `1`，直接运行状态检查或日常操作。
 
 本流程已在 macOS 真机完成端到端验证，包括在线升级、中文菜单、CC Switch 外部
 provider 拦截、官方状态安装、Keychain 凭据读取、菜单自动返回和第三方 Remote
