@@ -71,6 +71,7 @@ macOS/Windows 不依赖 shell 环境变量给桌面应用传密钥。它们使�
 - `codex-remote-provider.service` 加载 root-only 密钥并使用第三方三项默认配置；
 - `codex-remote-official.service` 不加载第三方密钥，使用安装前默认配置；
 - 两者都通过 `ExecStart` 调用 `remote-control start`，通过 `ExecStop` 调用 `stop`；
+- `ExecStop` 有 30 秒上限，避免 errored 连接无限阻塞 systemd 切换；
 - 切换时只启用一个 unit，因此最后一次人工选择会跨重启保持；
 - 安装前两个同名 unit 和旧 `codex.service` 的状态都会记录，回滚时恢复。
 
@@ -83,7 +84,9 @@ macOS/Windows 不依赖 shell 环境变量给桌面应用传密钥。它们使�
 
 回退是显式的，不是自动的：第三方故障时由管理员运行 `use-official.sh`，阅读
 额度警告并输入 `y` 确认。这样不会因为一次短暂超时就悄悄消耗官方额度。切换过程
-会保存当前用户配置和两个 unit 的启用/运行状态；目标模式启动失败时会尝试恢复。
+会保存当前用户配置和两个 unit 的启用/运行状态；目标模式启动异常时会先清理残留
+daemon，并有界重试同一模式一次，仍失败才尝试恢复。这不会选择另一个 provider，
+因此不构成自动故障转移。
 
 ## 安装与回滚事务
 

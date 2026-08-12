@@ -142,6 +142,7 @@ Environment=HOME=/root
 EnvironmentFile=$secret_file
 ExecStart=$codex_bin remote-control start --json -c model_provider=$provider_id -c model=$model -c model_reasoning_effort=$reasoning
 ExecStop=$codex_bin remote-control stop --json
+TimeoutStopSec=30s
 Restart=no
 
 [Install]
@@ -168,6 +169,7 @@ WorkingDirectory=/root
 Environment=HOME=/root
 ExecStart=$codex_bin remote-control start --json
 ExecStop=$codex_bin remote-control stop --json
+TimeoutStopSec=30s
 Restart=no
 
 [Install]
@@ -175,20 +177,21 @@ WantedBy=multi-user.target
 EOF
 }
 
-require_active_systemd_unit() {
+systemd_unit_is_healthy() {
   local unit_name=${1:?systemd unit required}
   local active_state result
 
-  active_state=$(systemctl show "$unit_name" -p ActiveState --value --no-pager) || {
-    printf '错误：无法读取 %s 的 systemd 状态。\n' "$unit_name" >&2
-    return 1
-  }
-  result=$(systemctl show "$unit_name" -p Result --value --no-pager) || {
-    printf '错误：无法读取 %s 的 systemd 结果。\n' "$unit_name" >&2
-    return 1
-  }
+  active_state=$(systemctl show "$unit_name" -p ActiveState --value --no-pager) \
+    || return 1
+  result=$(systemctl show "$unit_name" -p Result --value --no-pager) \
+    || return 1
+  [[ "$active_state" == active && "$result" == success ]]
+}
 
-  if [[ "$active_state" == active && "$result" == success ]]; then
+require_active_systemd_unit() {
+  local unit_name=${1:?systemd unit required}
+
+  if systemd_unit_is_healthy "$unit_name"; then
     return 0
   fi
 
@@ -198,6 +201,37 @@ require_active_systemd_unit() {
     --no-pager >&2 || true
   printf '请检查：journalctl -u %s -n 100 --no-pager\n' "$unit_name" >&2
   return 1
+}
+
+stop_remote_control_bounded() {
+  local codex_bin=${1:?Codex executable required}
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --signal=TERM --kill-after=5s 30s \
+      "$codex_bin" remote-control stop --json >/dev/null 2>&1 || true
+  else
+    "$codex_bin" remote-control stop --json >/dev/null 2>&1 || true
+  fi
+}
+
+start_remote_systemd_unit() {
+  local codex_bin=${1:?Codex executable required}
+  local unit_name=${2:?systemd unit required}
+
+  if systemctl --quiet start "$unit_name" \
+      && systemd_unit_is_healthy "$unit_name"; then
+    return 0
+  fi
+
+  printf '检测到 Remote 启动异常；正在停止残留 daemon，并重试一次同一模式……\n' >&2
+  stop_remote_control_bounded "$codex_bin"
+  systemctl reset-failed "$unit_name" >/dev/null 2>&1 || true
+
+  systemctl --quiet start "$unit_name" || {
+    require_active_systemd_unit "$unit_name" || true
+    return 1
+  }
+  require_active_systemd_unit "$unit_name"
 }
 
 restore_remote_service_selection() {
@@ -211,7 +245,7 @@ restore_remote_service_selection() {
 
   systemctl disable --now "$third_party_unit" >/dev/null 2>&1 || true
   systemctl disable --now "$official_unit" >/dev/null 2>&1 || true
-  "$codex_bin" remote-control stop --json >/dev/null 2>&1 || true
+  stop_remote_control_bounded "$codex_bin"
 
   if [[ "$third_party_enabled" == yes ]]; then
     systemctl enable "$third_party_unit" >/dev/null 2>&1 || true
@@ -220,10 +254,12 @@ restore_remote_service_selection() {
     systemctl enable "$official_unit" >/dev/null 2>&1 || true
   fi
   if [[ "$third_party_active" == yes ]]; then
-    systemctl start "$third_party_unit" >/dev/null 2>&1 || true
+    start_remote_systemd_unit "$codex_bin" "$third_party_unit" \
+      >/dev/null 2>&1 || true
   fi
   if [[ "$official_active" == yes ]]; then
-    systemctl start "$official_unit" >/dev/null 2>&1 || true
+    start_remote_systemd_unit "$codex_bin" "$official_unit" \
+      >/dev/null 2>&1 || true
   fi
 }
 
