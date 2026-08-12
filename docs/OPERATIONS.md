@@ -115,6 +115,15 @@ sudo ./setup.sh install
 codex-rp
 ```
 
+在线安装的 Linux/macOS 启动器会在打开面板前自动检查 `main`。归档未变时
+直接使用当前目录；出现新版时先备份旧程序目录，再事务替换。更新不会修改
+密钥、用户级 Codex 配置或当前 Remote 模式；失败时继续使用本地版本。临时
+需要跳过网络检查时，可以仅对当次命令设置：
+
+```bash
+CODEX_RP_SKIP_AUTO_UPDATE=1 codex-rp
+```
+
 安装会创建第三方 `codex-remote-provider.service` 与官方
 `codex-remote-official.service`，并且只启用当前所选模式。关闭面板不会停止
 Remote；人工切换后的模式会跨系统重启保持。
@@ -178,8 +187,9 @@ sudo ./status.sh --full
 
 ## 从旧版本升级套件
 
-重新运行公开在线安装命令会替换 `/opt/codex-remote-provider-kit`，并备份旧目录。
-随后打开新版面板或运行：
+已经含自动更新器的 Linux/macOS 安装只需运行 `codex-rp`。从更旧功能发布前的
+旧版升级时，先重新运行一次公开在线安装命令，让受管目录和全局启动器获得
+新逻辑。随后打开新版面板或运行：
 
 ```bash
 sudo ./setup.sh install

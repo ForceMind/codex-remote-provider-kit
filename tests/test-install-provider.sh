@@ -23,6 +23,18 @@ set -euo pipefail
 printf 'systemctl:%s\n' "$*" >> "$MOCK_LOG"
 case ${1-} in
   is-enabled|is-active) exit 1 ;;
+  show)
+    if [[ "$*" == *'--value'* ]]; then
+      if [[ "$*" == *'ActiveState'* ]]; then
+        printf '%s\n' "${MOCK_SHOW_ACTIVE_STATE:-active}"
+      elif [[ "$*" == *'Result'* ]]; then
+        printf '%s\n' "${MOCK_SHOW_RESULT:-success}"
+      fi
+    else
+      printf 'ActiveState=%s\nSubState=exited\nResult=%s\n' \
+        "${MOCK_SHOW_ACTIVE_STATE:-active}" "${MOCK_SHOW_RESULT:-success}"
+    fi
+    ;;
 esac
 if [[ -n ${MOCK_FAIL_UNIT:-} && "$*" == "--quiet enable --now $MOCK_FAIL_UNIT" ]]; then
   exit 1
@@ -109,6 +121,27 @@ cmp -s "$failure_dir/codex-rp" "$failure_dir/original-command"
 [[ ! -e "$failure_dir/codex-home/third_party.config.toml" ]]
 [[ ! -e "$failure_dir/provider.env" ]]
 [[ ! -e "$failure_dir/state.env" ]]
+
+late_failure_dir="$test_dir/late-failure"
+mkdir -p "$late_failure_dir/codex-home"
+printf 'model = "original-model"\n' > "$late_failure_dir/codex-home/config.toml"
+cp "$late_failure_dir/codex-home/config.toml" "$late_failure_dir/original-config"
+
+set +e
+run_installer "$late_failure_dir" \
+  MOCK_SHOW_ACTIVE_STATE=failed \
+  MOCK_SHOW_RESULT=exit-code \
+  > "$test_dir/late-failure.log" 2>&1
+late_failure_status=$?
+set -e
+[[ $late_failure_status != 0 ]]
+grep -Fq '启动后未保持正常状态' "$test_dir/late-failure.log"
+grep -Fq '正在恢复安装前状态' "$test_dir/late-failure.log"
+cmp -s "$late_failure_dir/codex-home/config.toml" \
+  "$late_failure_dir/original-config"
+[[ ! -e "$late_failure_dir/codex-home/third_party.config.toml" ]]
+[[ ! -e "$late_failure_dir/provider.env" ]]
+[[ ! -e "$late_failure_dir/state.env" ]]
 
 set +e
 THIRD_PARTY_API_KEY='test_token' bash "$repo_dir/install-provider.sh" \

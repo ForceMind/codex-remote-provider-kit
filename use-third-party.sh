@@ -49,6 +49,7 @@ set_remote_defaults "$CODEX_HOME_DIR/config.toml" "$PROVIDER_ID" "$MODEL" "$REAS
 systemctl --quiet disable --now "$official_unit_name" >/dev/null 2>&1 || true
 "$CODEX_BIN_PATH" remote-control stop --json >/dev/null 2>&1 || true
 systemctl --quiet enable --now "$third_party_unit_name"
+require_active_systemd_unit "$third_party_unit_name"
 trap - ERR
 printf '第三方 Remote 服务已重启，当前 systemd 状态：\n'
 systemctl show "$third_party_unit_name" -p ActiveState -p SubState -p Result --no-pager

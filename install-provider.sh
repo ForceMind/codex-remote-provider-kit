@@ -318,6 +318,7 @@ if [[ "$legacy_enabled" == yes ]]; then systemctl --quiet disable codex.service;
 systemctl daemon-reload
 systemctl --quiet disable --now "$official_unit_name" >/dev/null 2>&1 || true
 systemctl --quiet enable --now "$third_party_unit_name"
+require_active_systemd_unit "$third_party_unit_name"
 install -m 600 "$tmp_state" "$state_file"
 trap - ERR
 

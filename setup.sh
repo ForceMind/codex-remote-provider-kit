@@ -12,6 +12,8 @@ usage() {
   cat <<'EOF'
 Codex Remote 第三方模型供应商管理工具
 
+通过在线安装器部署后，codex-rp 每次启动会先安全检查套件更新。
+
 用法：
   ./panel.sh
   codex-rp

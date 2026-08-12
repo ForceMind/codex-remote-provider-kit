@@ -217,6 +217,7 @@ cmp -s "$repo_dir/platform/macos/assets/codex-rp.icns" \
 grep -Fq 'open -a Terminal' "$app_bundle/Contents/MacOS/codex-rp-launcher"
 LC_ALL=C grep -Fq 'codex-rp.sh' \
   "$app_bundle/Contents/Resources/launch.command"
+grep -Fq 'auto-update.sh' "$app_bundle/Contents/Resources/launch.command"
 if command -v plutil >/dev/null 2>&1; then
   plutil -lint "$app_bundle/Contents/Info.plist" >/dev/null
 fi
@@ -239,6 +240,7 @@ grep -Fxq 'args = ["find-generic-password", "-a", "third_party", "-s", "codex-re
 grep -Fxq 'third_party' "$test_dir/data/active/keychain_account"
 env "${common_env[@]}" "$test_dir/bin/codex-rp" help > "$test_dir/launcher-help.log"
 grep -Fq 'Codex 远程模型服务工具（macOS）' "$test_dir/launcher-help.log"
+grep -Fq 'auto-update.sh' "$test_dir/bin/codex-rp"
 
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status \
   > "$test_dir/status-third.log"

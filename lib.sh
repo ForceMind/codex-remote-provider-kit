@@ -63,12 +63,18 @@ read_secret_environment_value() {
 write_command_launcher() {
   local target_file=${1:?target file required}
   local setup_script=${2:?setup script required}
+  local kit_dir
   local marker='# Managed by codex-remote-provider-kit'
+
+  kit_dir=$(cd -- "$(dirname -- "$setup_script")" && pwd -P)
 
   {
     printf '#!/usr/bin/env bash\n'
     printf '%s\n' "$marker"
-    printf 'exec %q menu "$@"\n' "$setup_script"
+    printf 'kit_dir=%q\n' "$kit_dir"
+    printf 'setup_script=%q\n' "$setup_script"
+    printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+    printf 'exec "$setup_script" menu "$@"\n'
   } > "$target_file"
   chmod 755 "$target_file"
 }
@@ -167,6 +173,31 @@ Restart=no
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+require_active_systemd_unit() {
+  local unit_name=${1:?systemd unit required}
+  local active_state result
+
+  active_state=$(systemctl show "$unit_name" -p ActiveState --value --no-pager) || {
+    printf '错误：无法读取 %s 的 systemd 状态。\n' "$unit_name" >&2
+    return 1
+  }
+  result=$(systemctl show "$unit_name" -p Result --value --no-pager) || {
+    printf '错误：无法读取 %s 的 systemd 结果。\n' "$unit_name" >&2
+    return 1
+  }
+
+  if [[ "$active_state" == active && "$result" == success ]]; then
+    return 0
+  fi
+
+  printf '错误：%s 启动后未保持正常状态。\n' "$unit_name" >&2
+  systemctl show "$unit_name" \
+    -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus \
+    --no-pager >&2 || true
+  printf '请检查：journalctl -u %s -n 100 --no-pager\n' "$unit_name" >&2
+  return 1
 }
 
 restore_remote_service_selection() {
