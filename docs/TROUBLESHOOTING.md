@@ -17,6 +17,17 @@ sudo systemctl status codex-remote-provider.service --no-pager
 成功。更新后的脚本会在输出成功文案前同时检查 `ActiveState` 和 `Result`；
 目标 unit 异常时会报错并尝试恢复切换前的配置和服务模式。
 
+若 journal 中出现：
+
+```text
+Remote control is enabled on <server> but the connection is errored.
+```
+
+说明 Codex 的 Remote daemon 保留了异常连接状态，不表示第三方接口或官方登录必然
+失效。新版切换流程会停止残留 daemon、执行 `systemctl reset-failed`，然后只对同一
+目标模式重试一次。unit 的 `ExecStop` 最长等待 30 秒，避免异常连接让菜单长期卡住。
+第二次仍失败时才回滚；脚本不会因此自动切换 provider，也不会无限重试。
+
 在切换或重试前先保留脱敏诊断信息：
 
 ```bash

@@ -243,7 +243,7 @@ handle_install_error() {
   printf '安装未完成，正在恢复安装前状态……\n' >&2
   systemctl disable --now "$third_party_unit_name" >/dev/null 2>&1
   systemctl disable --now "$official_unit_name" >/dev/null 2>&1
-  "$codex_bin" remote-control stop --json >/dev/null 2>&1
+  stop_remote_control_bounded "$codex_bin"
 
   if [[ "$config_existed" == yes ]]; then
     install -m 600 "$backup_dir/config.toml" "$config_file"
@@ -314,11 +314,11 @@ install -m 755 "$tmp_command" "$command_file"
 
 if [[ "$legacy_active" == yes ]]; then systemctl stop codex.service; fi
 if [[ "$legacy_enabled" == yes ]]; then systemctl --quiet disable codex.service; fi
-"$codex_bin" remote-control stop --json >/dev/null 2>&1 || true
+stop_remote_control_bounded "$codex_bin"
 systemctl daemon-reload
 systemctl --quiet disable --now "$official_unit_name" >/dev/null 2>&1 || true
-systemctl --quiet enable --now "$third_party_unit_name"
-require_active_systemd_unit "$third_party_unit_name"
+systemctl --quiet enable "$third_party_unit_name"
+start_remote_systemd_unit "$codex_bin" "$third_party_unit_name"
 install -m 600 "$tmp_state" "$state_file"
 trap - ERR
 

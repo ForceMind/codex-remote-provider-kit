@@ -36,7 +36,7 @@ case ${1-} in
     fi
     ;;
 esac
-if [[ -n ${MOCK_FAIL_UNIT:-} && "$*" == "--quiet enable --now $MOCK_FAIL_UNIT" ]]; then
+if [[ -n ${MOCK_FAIL_UNIT:-} && "$*" == "--quiet start $MOCK_FAIL_UNIT" ]]; then
   exit 1
 fi
 EOF
