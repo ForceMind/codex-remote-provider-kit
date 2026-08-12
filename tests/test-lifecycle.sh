@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+IFS= read -r expected_version < "$repo_dir/VERSION"
 test_dir=$(mktemp -d)
 cleanup() { rm -rf "$test_dir"; }
 trap cleanup EXIT
@@ -178,6 +179,7 @@ env "${common_env[@]}" MOCK_ACTIVE_UNIT="$official_name" \
   MOCK_ENABLED_UNIT="$official_name" \
   bash "$repo_dir/status.sh" --full > "$test_dir/status-official.log"
 grep -Fq '当前模式：official' "$test_dir/status-official.log"
+grep -Fq "版本：$expected_version" "$test_dir/status-official.log"
 grep -Fq '避免意外消耗官方额度' "$test_dir/status-official.log"
 if grep -Eq '^(curl:|codex:exec)' "$mock_log"; then
   printf 'official status unexpectedly generated a model request\n' >&2
@@ -201,6 +203,7 @@ env "${common_env[@]}" MOCK_ACTIVE_UNIT="$third_party_name" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   bash "$repo_dir/status.sh" > "$test_dir/status-third-party.log"
 grep -Fq '当前模式：third-party' "$test_dir/status-third-party.log"
+grep -Fq "版本：$expected_version" "$test_dir/status-third-party.log"
 grep -Fq 'curl:' "$mock_log"
 if grep -Fq 'Authorization: Bearer' "$mock_log"; then
   printf 'secret header was exposed in the curl command line\n' >&2

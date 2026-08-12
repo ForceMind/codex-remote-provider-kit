@@ -7,11 +7,14 @@ if [[ $(uname -s) == Darwin ]]; then
 fi
 # shellcheck source=lib.sh
 source "$script_dir/lib.sh"
+kit_version=$(read_kit_version "$script_dir") || {
+  printf '错误：VERSION 文件缺失或格式无效\n' >&2
+  exit 1
+}
 
 usage() {
+  printf 'Codex Remote 第三方模型供应商管理工具 v%s\n\n' "$kit_version"
   cat <<'EOF'
-Codex Remote 第三方模型供应商管理工具
-
 通过在线安装器部署后，codex-rp 每次启动会先安全检查套件更新。
 
 用法：
@@ -30,6 +33,7 @@ Codex Remote 第三方模型供应商管理工具
   reconfigure   修改第三方接口、模型、推理强度，可选择同时更换密钥
   rotate-key    仅更换第三方 API 密钥
   rollback      恢复安装前配置并移除已保存的密钥
+  version       显示套件版本
   help          显示本帮助
 
 默认安装设置：
@@ -59,6 +63,7 @@ if (($#)); then shift; fi
 
 case "$command_name" in
   help|-h|--help) usage; exit 0 ;;
+  version|-V|--version) printf 'codex-remote-provider-kit %s\n' "$kit_version"; exit 0 ;;
   menu|install|codex|status|test|official|third-party|start|reconfigure|rotate-key|rollback) ;;
   *)
     printf '错误：未知命令：%s\n\n' "$command_name" >&2
@@ -83,7 +88,7 @@ show_panel() {
   local choice
   while true; do
     printf '\n'
-    printf 'Codex Remote 第三方模型供应商套件\n'
+    printf 'Codex Remote 第三方模型供应商套件 v%s\n' "$kit_version"
     printf '=================================\n'
     printf '1) 从零安装 / 重启第三方 Remote\n'
     printf '2) 查看基础状态\n'

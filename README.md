@@ -4,6 +4,9 @@
 OpenAI Responses API 的第三方接口，同时保留 Remote 所需的官方 ChatGPT 登录、
 workspace、设备配对和消息通道。
 
+当前稳定版本：**1.0.0**。版本历史见 [CHANGELOG.md](CHANGELOG.md)，终端可运行
+`codex-rp --version` 查看已安装版本。
+
 > 重要：这不是“完全绕过官方账户”。远控配对、登录和消息传输仍依赖官方
 > 服务；提示词、代码、工具定义和工具结果则可能发送到第三方模型供应商。
 
@@ -23,6 +26,8 @@ macOS 菜单中的每个操作完成或失败后都会回到主菜单；只有�
 
 ## 仓库内容
 
+- `VERSION`：套件版本号的唯一来源。
+- `CHANGELOG.md`：按版本记录功能、修复与安全边界变化。
 - `install.sh`：供 `curl | sh` 使用的公开在线安装入口。
 - `auto-update.sh`：在受管启动器进入面板前安全检查并替换套件程序目录。
 - `install-windows.ps1`：供 Windows PowerShell 使用的公开在线安装入口。
@@ -103,6 +108,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 
 ```bash
 codex-rp
+codex-rp --version
 ```
 
 由在线安装器部署的 Linux/macOS 版本会在每次启动 `codex-rp` 时先下载并

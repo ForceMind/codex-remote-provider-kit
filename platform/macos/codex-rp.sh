@@ -6,10 +6,15 @@ repo_dir=$(cd -- "$script_dir/../.." && pwd -P)
 
 die() { printf '错误：%s\n' "$*" >&2; exit 1; }
 
-usage() {
-  cat <<'EOF'
-Codex 远程模型服务工具（macOS）
+version_file="$repo_dir/VERSION"
+[[ -r "$version_file" ]] || die 'VERSION 文件缺失'
+IFS= read -r kit_version < "$version_file" || die '无法读取 VERSION 文件'
+[[ "$kit_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] \
+  || die 'VERSION 文件格式无效'
 
+usage() {
+  printf 'Codex 远程模型服务工具（macOS）v%s\n\n' "$kit_version"
+  cat <<'EOF'
 通过在线安装器部署后，codex-rp 每次启动会先安全检查套件更新。
 
 用法：
@@ -26,6 +31,7 @@ Codex 远程模型服务工具（macOS）
   shortcut      安装/刷新 Finder、Spotlight 和 Dock 可用的 .app 快捷入口
   restart-app   明确重启 ChatGPT 桌面应用以加载新配置
   rollback      移除本工具配置并删除 Keychain 密钥
+  version       显示套件版本
 
 安装选项：
   --base-url URL       第三方 Responses API Base URL（必须是 HTTPS）
@@ -968,6 +974,7 @@ show_status() {
   local mode keychain_status app_status login_status provider_config_status
   load_state
   current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  printf '[套件]\n版本：%s\n' "$kit_version"
   printf '[平台]\nmacOS\n'
   printf '[配置]\n'
   case "$mode" in
@@ -1130,7 +1137,7 @@ show_menu() {
   ensure_launcher
   ensure_app_launcher
   while true; do
-    printf '\nCodex 远程模型服务工具（macOS）\n'
+    printf '\nCodex 远程模型服务工具（macOS）v%s\n' "$kit_version"
     printf '重要：使用 CC Switch 时必须先切到 OpenAI 官方配置；检测到外部 provider 将拒绝写入。\n'
     printf '1) 安装第三方 provider\n2) 查看状态\n3) 完整测试\n'
     printf '4) 切换第三方\n5) 切换官方\n6) 轮换密钥\n'
@@ -1175,6 +1182,7 @@ case "$command_name" in
   shortcut) (($# == 0)) || die 'shortcut 不接受参数'; install_shortcuts ;;
   restart-app) (($# == 0)) || die 'restart-app 不接受参数'; restart_app ;;
   rollback) (($# == 0)) || die 'rollback 不接受参数'; rollback_all ;;
+  version|-V|--version) (($# == 0)) || die 'version 不接受参数'; printf 'codex-remote-provider-kit %s\n' "$kit_version" ;;
   help|-h|--help) usage ;;
   *) usage >&2; die "未知命令：$command_name" ;;
 esac

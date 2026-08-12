@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 
+read_kit_version() {
+  local kit_dir=${1:?kit directory required}
+  local version_file="$kit_dir/VERSION"
+  local version
+
+  [[ -r "$version_file" ]] || return 1
+  IFS= read -r version < "$version_file" || return 1
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || return 1
+  printf '%s\n' "$version"
+}
+
 is_chatgpt_logged_in() {
   local codex_bin=${1:?Codex executable required}
   local login_status
@@ -74,6 +85,7 @@ write_command_launcher() {
     printf 'kit_dir=%q\n' "$kit_dir"
     printf 'setup_script=%q\n' "$setup_script"
     printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+    printf 'case "${1-}" in version|-V|--version) exec "$setup_script" version ;; esac\n'
     printf 'exec "$setup_script" menu "$@"\n'
   } > "$target_file"
   chmod 755 "$target_file"
