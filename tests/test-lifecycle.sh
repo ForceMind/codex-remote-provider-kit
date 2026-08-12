@@ -244,7 +244,7 @@ assert config["model_provider"] == "third_party"
 assert config["model"] == "gpt-5.6-sol"
 assert config["model_reasoning_effort"] == "high"
 PY
-grep -Fq "systemctl:start $third_party_name" "$mock_log"
+grep -Fq "systemctl:--quiet start $third_party_name" "$mock_log"
 
 : > "$mock_log"
 set +e
@@ -269,7 +269,7 @@ assert config["model_provider"] == "third_party"
 assert config["model"] == "gpt-5.6-sol"
 assert config["model_reasoning_effort"] == "high"
 PY
-grep -Fq "systemctl:start $third_party_name" "$mock_log"
+grep -Fq "systemctl:--quiet start $third_party_name" "$mock_log"
 
 set +e
 bash "$repo_dir/status.sh" --bad >/dev/null 2>&1
