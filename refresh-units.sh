@@ -15,6 +15,7 @@ third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-
 official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-official.service}
 secret_file=${CODEX_RP_SECRET_FILE:-/etc/codex-remote-provider/provider.env}
 command_file=${COMMAND_FILE:-/usr/local/bin/codex-rp}
+shell_rc_file=${SHELL_RC_FILE:-/root/.bashrc}
 command_marker='# Managed by codex-remote-provider-kit'
 
 if [[ -e "$command_file" ]] && ! grep -Fxq "$command_marker" "$command_file"; then
@@ -43,15 +44,19 @@ fi
 
 tmp_third_party_unit=$(mktemp)
 tmp_official_unit=$(mktemp)
-cleanup() { rm -f "$tmp_third_party_unit" "$tmp_official_unit"; }
+tmp_shell_rc=$(mktemp)
+cleanup() { rm -f "$tmp_third_party_unit" "$tmp_official_unit" "$tmp_shell_rc"; }
 trap cleanup EXIT
 
 write_third_party_unit "$tmp_third_party_unit" "$CODEX_BIN_PATH" "$secret_file" \
   "$PROVIDER_ID" "$MODEL" "$REASONING"
 write_official_unit "$tmp_official_unit" "$CODEX_BIN_PATH"
+render_codex_shell_wrapper_rc "$shell_rc_file" "$tmp_shell_rc" "$CODEX_BIN_PATH" \
+  "$secret_file" "${third_party_unit_file##*/}"
 
 install -m 644 "$tmp_third_party_unit" "$third_party_unit_file"
 install -m 644 "$tmp_official_unit" "$official_unit_file"
 install_global_command "$script_dir/setup.sh" "$command_file"
+install -m 644 "$tmp_shell_rc" "$shell_rc_file"
 systemctl daemon-reload
-printf 'Remote systemd unit 和全局命令已更新。\n'
+printf 'Remote systemd unit、全局命令和本机 codex 快捷方式已更新。\n'

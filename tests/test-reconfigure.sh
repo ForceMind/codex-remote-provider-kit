@@ -54,6 +54,7 @@ printf 'model = "official-model"\nmodel_reasoning_effort = "low"\n' > "$test_dir
   printf 'CODEX_HOME_DIR=%q\n' "$codex_home"
   printf 'CODEX_BIN_PATH=%q\n' /usr/bin/false
   printf 'COMMAND_FILE=%q\n' "$command_file"
+  printf 'SHELL_RC_FILE=%q\n' "$test_dir/bashrc"
   printf 'BACKUP_DIR=%q\n' "$test_dir/backup"
   printf 'THIRD_PARTY_UNIT_FILE=%q\n' "$third_party_unit"
   printf 'OFFICIAL_UNIT_FILE=%q\n' "$official_unit"
@@ -77,6 +78,9 @@ source "$state_file"
 [[ "$BASE_URL" == https://new.test/v1 && "$MODEL" == new-model && "$REASONING" == medium ]]
 grep -Fxq 'TEST_KEY="old_key"' "$secret_file"
 grep -Fq 'https://new.test/v1 / new-model / medium' "$test_dir/reconfigure.log"
+grep -Fq '__codex_rp_bin=/usr/bin/false' "$test_dir/bashrc"
+grep -Fq "is-active --quiet ${third_party_unit##*/}" "$test_dir/bashrc"
+bash -n "$test_dir/bashrc"
 
 printf 'new_key==\n' | env "${common_env[@]}" \
   bash "$repo_dir/reconfigure.sh" --key-only > "$test_dir/rotate.log"

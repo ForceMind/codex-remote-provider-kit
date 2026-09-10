@@ -78,6 +78,7 @@ secret_file="$test_dir/provider.env"
 third_party_unit="$test_dir/codex-remote-provider.service"
 official_unit="$test_dir/codex-remote-official.service"
 command_file="$test_dir/codex-rp"
+shell_rc_file="$test_dir/bashrc"
 
 cat > "$backup_dir/config.toml" <<'EOF'
 model = "official-model"
@@ -105,6 +106,14 @@ cp "$backup_dir/codex-remote-official.service" "$official_unit"
 printf '#!/usr/bin/env bash\nprintf "original launcher\\n"\n' > "$backup_dir/codex-rp"
 chmod 755 "$backup_dir/codex-rp"
 printf '# Managed by codex-remote-provider-kit\n' > "$command_file"
+printf 'alias ll="ls -la"\n' > "$backup_dir/bashrc"
+cat > "$shell_rc_file" <<'EOF'
+alias ll="ls -la"
+
+# BEGIN codex-remote-provider-kit:shell-integration
+codex() { printf 'stale wrapper\n'; }
+# END codex-remote-provider-kit:shell-integration
+EOF
 printf 'TEST_PROVIDER_KEY="~"\n' > "$secret_file"
 chmod 600 "$secret_file"
 
@@ -117,6 +126,7 @@ chmod 600 "$secret_file"
   printf 'CODEX_HOME_DIR=%q\n' "$codex_home"
   printf 'CODEX_BIN_PATH=%q\n' "$mock_codex"
   printf 'COMMAND_FILE=%q\n' "$command_file"
+  printf 'SHELL_RC_FILE=%q\n' "$shell_rc_file"
   printf 'BACKUP_DIR=%q\n' "$backup_dir"
   printf 'THIRD_PARTY_UNIT_FILE=%q\n' "$third_party_unit"
   printf 'OFFICIAL_UNIT_FILE=%q\n' "$official_unit"
@@ -187,6 +197,15 @@ assert config["model"] == "gpt-5.6-sol"
 assert config["model_reasoning_effort"] == "high"
 PY
 grep -Fq 'EnvironmentFile=' "$third_party_unit"
+# refresh-units.sh (invoked by use-third-party.sh) must regenerate the local
+# codex() wrapper too, replacing any stale block left from a prior install.
+grep -Fxq 'alias ll="ls -la"' "$shell_rc_file"
+grep -Fq 'codex() {' "$shell_rc_file"
+if grep -Fq 'stale wrapper' "$shell_rc_file"; then
+  printf 'stale shell wrapper block was not refreshed\n' >&2
+  exit 1
+fi
+bash -n "$shell_rc_file"
 
 : > "$mock_log"
 env "${common_env[@]}" MOCK_ACTIVE_UNIT="$third_party_name" \
@@ -257,6 +276,7 @@ cmp -s "$third_party_unit" "$backup_dir/codex-remote-provider.service"
 cmp -s "$official_unit" "$backup_dir/codex-remote-official.service"
 cmp -s "$command_file" "$backup_dir/codex-rp"
 cmp -s "$config_file" "$backup_dir/config.toml"
+cmp -s "$shell_rc_file" "$backup_dir/bashrc"
 [[ ! -e "$secret_file" ]]
 [[ ! -e "$state_file" ]]
 find "$state_dir/audit" -maxdepth 1 -type f -name 'state-*.env' | grep -q .
@@ -276,6 +296,7 @@ cp "$collision_official_unit" "$collision_dir/original-official-unit"
   printf 'REASONING=%q\n' high
   printf 'CODEX_BIN_PATH=%q\n' "$mock_codex"
   printf 'COMMAND_FILE=%q\n' "$collision_command"
+  printf 'SHELL_RC_FILE=%q\n' "$collision_dir/bashrc"
   printf 'BACKUP_DIR=%q\n' "$collision_dir/backup"
   printf 'THIRD_PARTY_UNIT_FILE=%q\n' "$collision_third_party_unit"
   printf 'OFFICIAL_UNIT_FILE=%q\n' "$collision_official_unit"

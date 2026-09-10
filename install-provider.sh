@@ -98,6 +98,7 @@ official_unit_file=${CODEX_RP_OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remo
 third_party_unit_name=${third_party_unit_file##*/}
 official_unit_name=${official_unit_file##*/}
 command_file=${CODEX_RP_COMMAND_FILE:-/usr/local/bin/codex-rp}
+shell_rc_file=${CODEX_RP_SHELL_RC_FILE:-/root/.bashrc}
 command_marker='# Managed by codex-remote-provider-kit'
 begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
 end_marker="# END codex-remote-provider-kit:$provider_id"
@@ -123,6 +124,7 @@ fi
 third_party_unit_existed='no'
 official_unit_existed='no'
 command_existed='no'
+shell_rc_existed='no'
 if [[ -f "$third_party_unit_file" ]]; then
   third_party_unit_existed='yes'
   cp -p "$third_party_unit_file" "$backup_dir/codex-remote-provider.service"
@@ -134,6 +136,10 @@ fi
 if [[ -f "$command_file" ]]; then
   command_existed='yes'
   cp -p "$command_file" "$backup_dir/codex-rp"
+fi
+if [[ -f "$shell_rc_file" ]]; then
+  shell_rc_existed='yes'
+  cp -p "$shell_rc_file" "$backup_dir/bashrc"
 fi
 
 legacy_enabled='no'
@@ -155,10 +161,11 @@ tmp_secret=$(mktemp)
 tmp_third_party_unit=$(mktemp)
 tmp_official_unit=$(mktemp)
 tmp_command=$(mktemp)
+tmp_shell_rc=$(mktemp)
 tmp_state=$(mktemp)
 cleanup() {
   rm -f "$tmp_config" "$tmp_profile" "$tmp_secret" \
-    "$tmp_third_party_unit" "$tmp_official_unit" "$tmp_command" "$tmp_state"
+    "$tmp_third_party_unit" "$tmp_official_unit" "$tmp_command" "$tmp_shell_rc" "$tmp_state"
 }
 trap cleanup EXIT
 
@@ -203,6 +210,12 @@ write_official_unit "$tmp_official_unit" "$codex_bin"
 
 write_command_launcher "$tmp_command" "$script_dir/setup.sh"
 
+# Lets a plain `codex` typed in this machine's own terminal keep the current
+# ChatGPT login/session/history untouched while transparently routing through
+# the third-party key whenever that mode is active; official mode is unaffected.
+render_codex_shell_wrapper_rc "$shell_rc_file" "$tmp_shell_rc" "$codex_bin" \
+  "$secret_file" "$third_party_unit_name"
+
 python3 - "$tmp_config" "$tmp_profile" <<'PY'
 import sys, tomllib
 for path in sys.argv[1:]:
@@ -220,6 +233,7 @@ PY
   printf 'CODEX_HOME_DIR=%q\n' "$codex_home"
   printf 'CODEX_BIN_PATH=%q\n' "$codex_bin"
   printf 'COMMAND_FILE=%q\n' "$command_file"
+  printf 'SHELL_RC_FILE=%q\n' "$shell_rc_file"
   printf 'BACKUP_DIR=%q\n' "$backup_dir"
   printf 'THIRD_PARTY_UNIT_FILE=%q\n' "$third_party_unit_file"
   printf 'OFFICIAL_UNIT_FILE=%q\n' "$official_unit_file"
@@ -230,6 +244,7 @@ PY
   printf 'OFFICIAL_UNIT_ENABLED=%q\n' "$official_unit_enabled"
   printf 'OFFICIAL_UNIT_ACTIVE=%q\n' "$official_unit_active"
   printf 'COMMAND_EXISTED=%q\n' "$command_existed"
+  printf 'SHELL_RC_EXISTED=%q\n' "$shell_rc_existed"
   printf 'LEGACY_ENABLED=%q\n' "$legacy_enabled"
   printf 'LEGACY_ACTIVE=%q\n' "$legacy_active"
 } > "$tmp_state"
@@ -272,6 +287,12 @@ handle_install_error() {
   elif [[ -f "$command_file" ]] && grep -Fxq "$command_marker" "$command_file"; then
     rm -f "$command_file"
   fi
+  if [[ "$shell_rc_existed" == yes ]]; then
+    install -m 644 "$backup_dir/bashrc" "$shell_rc_file"
+  elif [[ -f "$shell_rc_file" ]] \
+      && grep -Fxq '# BEGIN codex-remote-provider-kit:shell-integration' "$shell_rc_file"; then
+    rm -f "$shell_rc_file"
+  fi
 
   systemctl daemon-reload >/dev/null 2>&1
   if [[ "$third_party_unit_existed" == yes ]]; then
@@ -311,6 +332,7 @@ install -m 600 "$tmp_secret" "$secret_file"
 install -m 644 "$tmp_third_party_unit" "$third_party_unit_file"
 install -m 644 "$tmp_official_unit" "$official_unit_file"
 install -m 755 "$tmp_command" "$command_file"
+install -m 644 "$tmp_shell_rc" "$shell_rc_file"
 
 if [[ "$legacy_active" == yes ]]; then systemctl stop codex.service; fi
 if [[ "$legacy_enabled" == yes ]]; then systemctl --quiet disable codex.service; fi
@@ -325,5 +347,9 @@ trap - ERR
 printf '已安装供应商 %s，模型为 %s。\n' "$provider_id" "$model"
 printf '备份位置：%s\n' "$backup_dir"
 printf '后台服务已启动，并已设为开机自启。\n'
+printf '本机终端直接运行 codex 时，第三方模式下会自动带上第三方密钥，\n'
+printf '官方模式下行为不变；已经打开的终端需要新开一个或执行\n'
+printf '  source %s\n' "$shell_rc_file"
+printf '才会生效。\n'
 printf '可在任意目录打开管理面板：codex-rp\n'
 printf '完整验证命令：sudo %s/status.sh --full\n' "$script_dir"

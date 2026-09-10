@@ -15,6 +15,7 @@ official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-offici
 third_party_unit_name=${third_party_unit_file##*/}
 official_unit_name=${official_unit_file##*/}
 secret_file=${CODEX_RP_SECRET_FILE:-/etc/codex-remote-provider/provider.env}
+shell_rc_file=${SHELL_RC_FILE:-/root/.bashrc}
 
 printf '回滚将删除持久化的供应商密钥，并从 %s 恢复配置。\n' "$BACKUP_DIR"
 printf '请输入 ROLLBACK 继续：'
@@ -66,6 +67,15 @@ if [[ -f "$BACKUP_DIR/codex-rp" ]]; then
   install -m 755 "$BACKUP_DIR/codex-rp" "$command_file"
 elif [[ -f "$command_file" ]] && grep -Fxq '# Managed by codex-remote-provider-kit' "$command_file"; then
   rm -f "$command_file"
+fi
+
+# ~/.bashrc is a live file the user keeps editing, unlike the tool-owned
+# codex-rp launcher above, so an unbacked-up file only has our block removed
+# instead of being deleted outright.
+if [[ -f "$BACKUP_DIR/bashrc" ]]; then
+  install -m 644 "$BACKUP_DIR/bashrc" "$shell_rc_file"
+else
+  remove_codex_shell_wrapper_block "$shell_rc_file"
 fi
 systemctl daemon-reload
 

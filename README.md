@@ -118,6 +118,16 @@ Linux 安装会创建第三方 `codex-remote-provider.service` 和官方
 `codex-remote-official.service`，并且始终只启用其中一个。首次安装立即启用第三方
 模式；退出命令面板不会停止 Remote 后台服务，切换后的模式也会跨系统重启保持。
 
+Linux 安装还会在 `~/.bashrc`（root 用户）写入一个 `codex()` shell 函数，
+让你在服务器本机终端里直接敲的 `codex` 命令自动跟随当前模式：第三方模式
+active 时自动带上第三方密钥，官方模式下行为和未安装本工具前完全一致。
+ChatGPT 登录、对话历史和账号本身不受这个切换影响——只是请求会按当前模式
+路由到第三方或官方接口，手机 Remote 的互斥模式也不受影响。**已经打开的
+终端不会立即生效**，需要新开一个终端或执行 `source ~/.bashrc`；这是 shell
+本身的限制。`use-official.sh`/`use-third-party.sh`/`sudo ./setup.sh
+reconfigure` 等操作会保持这个包装函数与当前 Codex 路径同步；完整回滚
+（`rollback.sh`）会移除它，只保留原有的 `.bashrc` 内容。
+
 ## Linux 服务器从零安装并运行
 
 前提：使用 systemd 的 Linux 服务器、root/sudo 权限，以及一枚第三方供应商 API

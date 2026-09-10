@@ -11,6 +11,28 @@ sudo systemctl status codex-remote-provider.service --no-pager
 `codex-remote-official.service`；若两个 unit 同时 active 或都未运行，状态检查会
 明确失败，而不是误报第三方可用。
 
+## 本机终端直接运行 codex 报 `Missing environment variable: THIRD_PARTY_API_KEY`
+
+第三方密钥只作为 `EnvironmentFile` 提供给 `codex-remote-provider.service`
+这一个 systemd 进程；本机终端里直接敲的 `codex` 是另一个进程，默认拿不到
+这个变量。安装/`refresh-units.sh` 会在 `~/.bashrc`（root）写入一个 `codex()`
+函数自动处理这件事：第三方模式 active 时自动注入密钥，官方模式下行为不变。
+
+先确认：
+
+1. 是不是刚装好或刚切换模式后**没有新开终端**——已经打开的终端不会自动生效，
+   执行 `source ~/.bashrc` 或新开一个终端。
+2. `type codex` 应显示 `codex is a function`；如果显示的是二进制路径，说明
+   `~/.bashrc` 里没有这个函数（可能是非 root 用户、非 bash、或非交互式
+   shell 没有加载 `~/.bashrc`）。重新运行一次安装或 `sudo ./refresh-units.sh`
+   补写。
+3. 仍然报错时，用 `sudo ./status.sh --full` 直接验证第三方链路本身是否可用
+   （它会自行读取密钥文件，不依赖这个 shell 包装）。
+
+不要为了让它"能用"就把密钥手工 `export` 进个人 `~/.bashrc` 或系统级
+`/etc/environment`——那样会让密钥脱离本工具的 root-only 密钥文件管理，
+切回官方或轮换密钥时也不会同步更新。
+
 ## 切换后显示 `ActiveState=failed`
 
 这表示目标 Remote unit 确实启动失败，不能把之前的“已启动”文案当作

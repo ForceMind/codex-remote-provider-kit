@@ -95,6 +95,86 @@ install_global_command() {
   rm -f "$temp_file"
 }
 
+write_codex_shell_wrapper_block() {
+  local target_file=${1:?target file required}
+  local codex_bin=${2:?Codex executable required}
+  local secret_file=${3:?secret file required}
+  local third_party_unit_name=${4:?third-party unit name required}
+  local quoted_codex_bin quoted_secret_file quoted_unit_name
+
+  printf -v quoted_codex_bin '%q' "$codex_bin"
+  printf -v quoted_secret_file '%q' "$secret_file"
+  printf -v quoted_unit_name '%q' "$third_party_unit_name"
+
+  # Runs a real per-invocation check (not a cached env var) so switching modes
+  # takes effect on the next `codex` call without needing to re-source this file.
+  cat > "$target_file" <<EOF
+# BEGIN codex-remote-provider-kit:shell-integration
+# Managed by codex-remote-provider-kit
+# 第三方 Remote 服务处于 active 状态时，本机直接运行 codex 会自动带上第三方密钥；
+# 官方模式下与未安装本工具前行为一致。已打开的终端需重新 source 本文件才会生效。
+codex() {
+  local __codex_rp_bin=$quoted_codex_bin
+  if systemctl is-active --quiet $quoted_unit_name >/dev/null 2>&1 \\
+      && [[ -r $quoted_secret_file ]]; then
+    ( set -a; . $quoted_secret_file; set +a; "\$__codex_rp_bin" "\$@" )
+  else
+    "\$__codex_rp_bin" "\$@"
+  fi
+}
+# END codex-remote-provider-kit:shell-integration
+EOF
+}
+
+render_codex_shell_wrapper_rc() {
+  local source_rc_file=${1:?source rc file required}
+  local target_file=${2:?target file required}
+  local codex_bin=${3:?Codex executable required}
+  local secret_file=${4:?secret file required}
+  local third_party_unit_name=${5:?third-party unit name required}
+  local begin_marker='# BEGIN codex-remote-provider-kit:shell-integration'
+  local end_marker='# END codex-remote-provider-kit:shell-integration'
+  local block_file
+
+  if [[ -f "$source_rc_file" ]]; then
+    awk -v begin="$begin_marker" -v end="$end_marker" '
+      $0 == begin { skip=1; next }
+      $0 == end { skip=0; next }
+      !skip { print }
+    ' "$source_rc_file" > "$target_file"
+  else
+    : > "$target_file"
+  fi
+  # Collapse trailing blank lines left by a previously stripped block so
+  # repeated installs/refreshes don't accumulate blank lines over time.
+  if [[ -s "$target_file" ]]; then
+    printf '%s\n' "$(cat "$target_file")" > "$target_file"
+  fi
+
+  block_file=$(mktemp)
+  write_codex_shell_wrapper_block "$block_file" "$codex_bin" "$secret_file" "$third_party_unit_name"
+  [[ -s "$target_file" ]] && printf '\n' >> "$target_file"
+  cat "$block_file" >> "$target_file"
+  rm -f "$block_file"
+}
+
+remove_codex_shell_wrapper_block() {
+  local rc_file=${1:?shell rc file required}
+  local begin_marker='# BEGIN codex-remote-provider-kit:shell-integration'
+  local end_marker='# END codex-remote-provider-kit:shell-integration'
+  local temp_file
+
+  [[ -f "$rc_file" ]] || return 0
+  temp_file=$(mktemp)
+  awk -v begin="$begin_marker" -v end="$end_marker" '
+    $0 == begin { skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$rc_file" > "$temp_file"
+  install -m 644 "$temp_file" "$rc_file"
+  rm -f "$temp_file"
+}
+
 set_state_variable() {
   local state_file=${1:?state file required}
   local key=${2:?state key required}

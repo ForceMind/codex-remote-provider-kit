@@ -54,6 +54,7 @@ run_installer() {
     CODEX_RP_THIRD_PARTY_UNIT_FILE="$fixture/codex-remote-provider.service" \
     CODEX_RP_OFFICIAL_UNIT_FILE="$fixture/codex-remote-official.service" \
     CODEX_RP_COMMAND_FILE="$fixture/codex-rp" \
+    CODEX_RP_SHELL_RC_FILE="$fixture/bashrc" \
     "$@" \
     bash "$repo_dir/install-provider.sh" \
       --base-url https://gateway.test/v1 \
@@ -84,6 +85,31 @@ assert config["model_reasoning_effort"] == "high"
 assert config["model_providers"]["third_party"]["base_url"] == "https://gateway.test/v1"
 PY
 
+grep -Fxq '# BEGIN codex-remote-provider-kit:shell-integration' "$success_dir/bashrc"
+grep -Fxq '# END codex-remote-provider-kit:shell-integration' "$success_dir/bashrc"
+grep -Fq 'codex() {' "$success_dir/bashrc"
+bash -n "$success_dir/bashrc"
+
+# The generated codex() wrapper must inject the third-party key only while its
+# unit is active, and must never leak it into the caller's own shell.
+(
+  fake_real_codex="$test_dir/fake-real-codex"
+  cat > "$fake_real_codex" <<'EOF'
+#!/usr/bin/env bash
+printf 'ran:%s:THIRD_PARTY_API_KEY=%s\n' "$*" "${THIRD_PARTY_API_KEY-<unset>}"
+EOF
+  chmod 755 "$fake_real_codex"
+  sed "s#$mock_bin/codex#$fake_real_codex#" "$success_dir/bashrc" > "$test_dir/bashrc-under-test"
+
+  source "$test_dir/bashrc-under-test"
+  systemctl() { [[ "$1 $2 $3" == 'is-active --quiet codex-remote-provider.service' ]]; }
+  [[ $(codex exec ping) == 'ran:exec ping:THIRD_PARTY_API_KEY=test_token' ]]
+  [[ -z "${THIRD_PARTY_API_KEY-}" ]]
+
+  systemctl() { return 1; }
+  [[ $(codex exec ping) == 'ran:exec ping:THIRD_PARTY_API_KEY=<unset>' ]]
+)
+
 set +e
 run_installer "$success_dir" > "$test_dir/reinstall.log" 2>&1
 reinstall_status=$?
@@ -99,10 +125,12 @@ printf '# original official unit\n' > "$failure_dir/codex-remote-official.servic
 printf '#!/usr/bin/env bash\n# Managed by codex-remote-provider-kit\nprintf "original\\n"\n' \
   > "$failure_dir/codex-rp"
 chmod 755 "$failure_dir/codex-rp"
+printf 'alias ll="ls -la"\n' > "$failure_dir/bashrc"
 cp "$failure_dir/codex-home/config.toml" "$failure_dir/original-config"
 cp "$failure_dir/codex-remote-provider.service" "$failure_dir/original-third-party-unit"
 cp "$failure_dir/codex-remote-official.service" "$failure_dir/original-official-unit"
 cp "$failure_dir/codex-rp" "$failure_dir/original-command"
+cp "$failure_dir/bashrc" "$failure_dir/original-bashrc"
 
 set +e
 run_installer "$failure_dir" \
@@ -118,6 +146,7 @@ cmp -s "$failure_dir/codex-remote-provider.service" \
 cmp -s "$failure_dir/codex-remote-official.service" \
   "$failure_dir/original-official-unit"
 cmp -s "$failure_dir/codex-rp" "$failure_dir/original-command"
+cmp -s "$failure_dir/bashrc" "$failure_dir/original-bashrc"
 [[ ! -e "$failure_dir/codex-home/third_party.config.toml" ]]
 [[ ! -e "$failure_dir/provider.env" ]]
 [[ ! -e "$failure_dir/state.env" ]]
@@ -140,6 +169,7 @@ grep -Fq '正在恢复安装前状态' "$test_dir/late-failure.log"
 cmp -s "$late_failure_dir/codex-home/config.toml" \
   "$late_failure_dir/original-config"
 [[ ! -e "$late_failure_dir/codex-home/third_party.config.toml" ]]
+[[ ! -e "$late_failure_dir/bashrc" ]]
 [[ ! -e "$late_failure_dir/provider.env" ]]
 [[ ! -e "$late_failure_dir/state.env" ]]
 

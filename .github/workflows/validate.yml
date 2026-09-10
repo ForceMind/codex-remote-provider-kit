@@ -28,6 +28,9 @@ jobs:
       - name: Test global command launcher
         shell: bash
         run: bash tests/test-command-launcher.sh
+      - name: Test local codex shell integration
+        shell: bash
+        run: bash tests/test-shell-integration.sh
       - name: Test ChatGPT login status detection
         shell: bash
         run: bash tests/test-login-status.sh
