@@ -22,6 +22,9 @@ jobs:
       - name: Test default provider switching
         shell: bash
         run: bash tests/test-provider-config.sh
+      - name: Test release version consistency
+        shell: bash
+        run: bash tests/test-version.sh
       - name: Test command panel
         shell: bash
         run: printf '2\n0\n' | bash panel.sh

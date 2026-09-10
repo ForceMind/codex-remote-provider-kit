@@ -27,10 +27,16 @@ grep -Fxq '# Managed by codex-remote-provider-kit' "$launcher"
 [[ $(cd /tmp && "$launcher") == 'called:menu' ]]
 [[ -f "$test_dir/update-ran" ]]
 rm -f "$test_dir/update-ran"
+[[ $(cd /tmp && "$launcher" --version) == 'called:version' ]]
+[[ -f "$test_dir/update-ran" ]]
+rm -f "$test_dir/update-ran"
 
 managed_command="$test_dir/managed-command"
 install_global_command "$fake_setup" "$managed_command"
 [[ $(cd / && "$managed_command") == 'called:menu' ]]
+[[ -f "$test_dir/update-ran" ]]
+rm -f "$test_dir/update-ran"
+[[ $(cd / && "$managed_command" version) == 'called:version' ]]
 [[ -f "$test_dir/update-ran" ]]
 
 unmanaged_command="$test_dir/unmanaged-command"

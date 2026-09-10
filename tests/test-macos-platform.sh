@@ -110,6 +110,10 @@ common_env=(
   MOCK_KEYCHAIN_FILE="$mock_keychain"
 )
 
+IFS= read -r expected_version < "$repo_dir/VERSION"
+version_output=$(env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" version)
+[[ "$version_output" == "codex-remote-provider-kit $expected_version" ]]
+
 set_top_level_for_test() {
   local target=${1:?target required}
   local key=${2:?key required}

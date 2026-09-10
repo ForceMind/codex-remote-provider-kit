@@ -50,6 +50,12 @@ shell_tool = true
     $env:CODEX_RP_TEST_MODE = '1'
     $env:THIRD_PARTY_API_KEY = 'test_token'
 
+    $expectedVersion = [System.IO.File]::ReadAllText((Join-Path $repoDir 'VERSION')).Trim()
+    $versionOutput = (& $entry version | Out-String).Trim()
+    if ($versionOutput -ne "codex-remote-provider-kit $expectedVersion") { throw "Unexpected kit version: $versionOutput" }
+    $versionFlagOutput = (& $entry --version | Out-String).Trim()
+    if ($versionFlagOutput -ne "codex-remote-provider-kit $expectedVersion") { throw "Unexpected --version output: $versionFlagOutput" }
+
     & $entry install -BaseUrl 'https://gateway.test/v1' -Model 'gpt-5.6-sol' -ProviderId 'third_party' -Reasoning 'high' -CodexBin $mockCommand
     if (-not (Test-Path -LiteralPath (Join-Path $dataDir 'active\provider.key'))) { throw 'DPAPI credential was not created.' }
     $config = [System.IO.File]::ReadAllText($configFile)

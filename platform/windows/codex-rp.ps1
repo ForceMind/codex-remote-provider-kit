@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('menu', 'install', 'status', 'test', 'official', 'third-party', 'rotate-key', 'restart-app', 'rollback', 'help')]
+    [ValidateSet('menu', 'install', 'status', 'test', 'official', 'third-party', 'rotate-key', 'restart-app', 'rollback', 'version', '-V', '--version', 'help')]
     [string] $Command = 'menu',
 
     [string] $BaseUrl = '',
@@ -17,6 +17,10 @@ Set-StrictMode -Version 2.0
 
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:RepoDir = (Resolve-Path (Join-Path $script:ScriptDir '..\..')).Path
+$script:VersionFile = Join-Path $script:RepoDir 'VERSION'
+if (-not (Test-Path -LiteralPath $script:VersionFile -PathType Leaf)) { throw 'VERSION 文件缺失。' }
+$script:KitVersion = [System.IO.File]::ReadAllText($script:VersionFile).Trim()
+if ($script:KitVersion -notmatch '^\d+\.\d+\.\d+([+-][0-9A-Za-z.-]+)?$') { throw 'VERSION 文件格式无效。' }
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
 $script:DataDir = if ($env:CODEX_RP_DATA_DIR) { $env:CODEX_RP_DATA_DIR } else { Join-Path $env:LOCALAPPDATA 'CodexRemoteProviderKit' }
 $script:ActiveDir = Join-Path $script:DataDir 'active'
@@ -34,9 +38,9 @@ function Read-Confirmation([string] $Prompt) {
 }
 
 function Show-Usage {
+    Write-Host "Codex Remote Provider Kit（Windows）v$($script:KitVersion)"
+    Write-Host ''
     @'
-Codex Remote Provider Kit（Windows）
-
 用法：
   codex-rp <命令> [PowerShell 参数]
 
@@ -50,6 +54,7 @@ Codex Remote Provider Kit（Windows）
   rotate-key    更新当前 Windows 用户的 DPAPI 加密密钥
   restart-app   明确重启 ChatGPT 桌面应用
   rollback      恢复安装前配置并删除加密密钥
+  version       显示套件版本
 
 示例：
   codex-rp install -BaseUrl https://provider.example/v1 -Model gpt-5.6-sol
@@ -464,6 +469,8 @@ function Show-Status {
     $provider = Get-TopLevelString $script:ConfigFile 'model_provider'
     $modelValue = Get-TopLevelString $script:ConfigFile 'model'
     $reasoningValue = Get-TopLevelString $script:ConfigFile 'model_reasoning_effort'
+    Write-Host '[套件]'
+    Write-Host "版本：$($script:KitVersion)"
     Write-Host '[平台]'
     Write-Host 'Windows'
     Write-Host '[配置]'
@@ -582,7 +589,7 @@ function Rollback-All {
 function Show-Menu {
     while ($true) {
         Write-Host ''
-        Write-Host 'Codex Remote Provider Kit（Windows）'
+        Write-Host "Codex Remote Provider Kit（Windows）v$($script:KitVersion)"
         Write-Host '1) 安装第三方 provider    2) 查看状态    3) 完整测试'
         Write-Host '4) 切换第三方              5) 切换官方    6) 轮换密钥'
         Write-Host '7) 重启 ChatGPT 应用       8) 完整回滚    0) 退出'
@@ -612,6 +619,7 @@ try {
         'rotate-key' { Rotate-Key }
         'restart-app' { Restart-ChatGptApp }
         'rollback' { Rollback-All }
+        { $_ -in @('version', '-V', '--version') } { Write-Output "codex-remote-provider-kit $($script:KitVersion)" }
         'help' { Show-Usage }
     }
 }

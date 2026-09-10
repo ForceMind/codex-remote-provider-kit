@@ -22,6 +22,7 @@ codex-rp third-party
 codex-rp rotate-key
 codex-rp restart-app
 codex-rp rollback
+codex-rp --version
 ```
 
 macOS 另外安装 `~/Applications/Codex 远程模型服务工具.app`。可从 Finder、
@@ -182,8 +183,10 @@ sudo ./status.sh --full
 ```
 
 切换脚本会刷新两个 unit、停止另一模式并修改开机启用状态。项目不执行自动
-故障转移。若目标服务启动失败，脚本会尝试恢复切换前的配置和服务模式。官方
-模式下运行 `status.sh --full` 也不会生成回复，以免意外消耗额度。
+故障转移。若目标服务第一次启动失败或启动后状态异常，脚本会有界停止残留
+daemon、清除目标 unit 的 failed 状态，并重试同一模式一次；第二次仍失败才尝试
+恢复切换前的配置和服务模式。官方模式下运行 `status.sh --full` 也不会生成回复，
+以免意外消耗额度。
 
 ## 从旧版本升级套件
 
@@ -200,6 +203,13 @@ sudo ./setup.sh install
 
 第三方接口默认必须是 HTTPS。仅隔离的本机测试可通过命令行显式增加
 `--allow-http`；面向公网或局域网网关都不应使用明文 HTTP 传输密钥。
+
+## 版本发布收尾
+
+仓库根目录 `VERSION` 是版本号的唯一来源，使用语义化版本；`CHANGELOG.md` 记录
+对应日期、功能、修复和安全边界。发布前必须确认三个平台的 `version` 命令与
+`VERSION` 一致，检查暂存差异和凭据扫描，并让 GitHub Actions 全部通过。合并后
+创建同名 `v<version>` Git 标签和 GitHub Release；不要从未合并的分支打正式标签。
 
 ## 密钥轮换
 

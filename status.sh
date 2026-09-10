@@ -4,6 +4,10 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 # shellcheck source=lib.sh
 source "$script_dir/lib.sh"
+kit_version=$(read_kit_version "$script_dir") || {
+  printf '错误：VERSION 文件缺失或格式无效\n' >&2
+  exit 1
+}
 
 full='no'
 case $# in
@@ -51,6 +55,7 @@ else
   exit 1
 fi
 
+printf '[套件]\n版本：%s\n' "$kit_version"
 printf '[服务状态]\n'
 printf '当前模式：%s\n' "$mode"
 systemctl show "$selected_unit_name" \

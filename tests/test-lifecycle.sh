@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+IFS= read -r expected_version < "$repo_dir/VERSION"
 test_dir=$(mktemp -d)
 cleanup() { rm -rf "$test_dir"; }
 trap cleanup EXIT
@@ -40,7 +41,14 @@ case ${1-} in
     ;;
 esac
 if [[ -n ${MOCK_FAIL_ENABLE_UNIT:-} \
-    && "$*" == "--quiet enable --now $MOCK_FAIL_ENABLE_UNIT" ]]; then
+    && "$*" == "--quiet enable $MOCK_FAIL_ENABLE_UNIT" ]]; then
+  exit 1
+fi
+if [[ -n ${MOCK_FAIL_START_ONCE_UNIT:-} \
+    && -n ${MOCK_FAIL_START_ONCE_MARKER:-} \
+    && "$*" == "--quiet start $MOCK_FAIL_START_ONCE_UNIT" \
+    && ! -e $MOCK_FAIL_START_ONCE_MARKER ]]; then
+  : > "$MOCK_FAIL_START_ONCE_MARKER"
   exit 1
 fi
 EOF
@@ -173,13 +181,15 @@ assert config["model_reasoning_effort"] == "medium"
 PY
 grep -Fxq '# Managed by codex-remote-provider-kit' "$official_unit"
 grep -Fq "systemctl:--quiet disable --now $third_party_name" "$mock_log"
-grep -Fq "systemctl:--quiet enable --now $official_name" "$mock_log"
+grep -Fq "systemctl:--quiet enable $official_name" "$mock_log"
+grep -Fq "systemctl:--quiet start $official_name" "$mock_log"
 
 : > "$mock_log"
 env "${common_env[@]}" MOCK_ACTIVE_UNIT="$official_name" \
   MOCK_ENABLED_UNIT="$official_name" \
   bash "$repo_dir/status.sh" --full > "$test_dir/status-official.log"
 grep -Fq '当前模式：official' "$test_dir/status-official.log"
+grep -Fq "版本：$expected_version" "$test_dir/status-official.log"
 grep -Fq '避免意外消耗官方额度' "$test_dir/status-official.log"
 if grep -Eq '^(curl:|codex:exec)' "$mock_log"; then
   printf 'official status unexpectedly generated a model request\n' >&2
@@ -212,11 +222,30 @@ env "${common_env[@]}" MOCK_ACTIVE_UNIT="$third_party_name" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   bash "$repo_dir/status.sh" > "$test_dir/status-third-party.log"
 grep -Fq '当前模式：third-party' "$test_dir/status-third-party.log"
+grep -Fq "版本：$expected_version" "$test_dir/status-third-party.log"
 grep -Fq 'curl:' "$mock_log"
 if grep -Fq 'Authorization: Bearer' "$mock_log"; then
   printf 'secret header was exposed in the curl command line\n' >&2
   exit 1
 fi
+
+: > "$mock_log"
+transient_marker="$test_dir/transient-start-failed"
+printf 'y\n' | env "${common_env[@]}" \
+  MOCK_ACTIVE_UNIT="$third_party_name" \
+  MOCK_ENABLED_UNIT="$third_party_name" \
+  MOCK_FAIL_START_ONCE_UNIT="$official_name" \
+  MOCK_FAIL_START_ONCE_MARKER="$transient_marker" \
+  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1
+[[ -e "$transient_marker" ]]
+grep -Fq '正在停止残留 daemon，并重试一次同一模式' \
+  "$test_dir/transient-switch.log"
+[[ $(grep -Fc "systemctl:--quiet start $official_name" "$mock_log") == 2 ]]
+grep -Fq 'Remote 已使用常规/默认 Codex 供应商启动' \
+  "$test_dir/transient-switch.log"
+
+env "${common_env[@]}" bash "$repo_dir/use-third-party.sh" \
+  > "$test_dir/restore-third-party.log"
 
 : > "$mock_log"
 set +e
@@ -237,7 +266,7 @@ assert config["model_provider"] == "third_party"
 assert config["model"] == "gpt-5.6-sol"
 assert config["model_reasoning_effort"] == "high"
 PY
-grep -Fq "systemctl:start $third_party_name" "$mock_log"
+grep -Fq "systemctl:--quiet start $third_party_name" "$mock_log"
 
 : > "$mock_log"
 set +e
@@ -262,7 +291,7 @@ assert config["model_provider"] == "third_party"
 assert config["model"] == "gpt-5.6-sol"
 assert config["model_reasoning_effort"] == "high"
 PY
-grep -Fq "systemctl:start $third_party_name" "$mock_log"
+grep -Fq "systemctl:--quiet start $third_party_name" "$mock_log"
 
 set +e
 bash "$repo_dir/status.sh" --bad >/dev/null 2>&1
