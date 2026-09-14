@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'printf "lifecycle test failed at line %d\n" "$LINENO" >&2' ERR
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 IFS= read -r expected_version < "$repo_dir/VERSION"
@@ -97,14 +98,17 @@ model_provider = "third_party"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 
+# BEGIN codex-remote-provider-kit:third_party
 [model_providers.third_party]
+name = "third_party"
 base_url = "https://gateway.test/v1"
 env_key = "TEST_PROVIDER_KEY"
 wire_api = "responses"
+# END codex-remote-provider-kit:third_party
 EOF
 cat > "$profile_file" <<'EOF'
-model_provider = "third_party"
 model = "gpt-5.6-sol"
+model_provider = "third_party"
 model_reasoning_effort = "high"
 EOF
 printf '# original third-party unit\n' > "$backup_dir/codex-remote-provider.service"
@@ -231,12 +235,16 @@ fi
 
 : > "$mock_log"
 transient_marker="$test_dir/transient-start-failed"
-printf 'y\n' | env "${common_env[@]}" \
+if ! printf 'y\n' | env "${common_env[@]}" \
   MOCK_ACTIVE_UNIT="$third_party_name" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   MOCK_FAIL_START_ONCE_UNIT="$official_name" \
   MOCK_FAIL_START_ONCE_MARKER="$transient_marker" \
-  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1
+  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1; then
+  printf 'transient switch output:\n' >&2
+  sed -n '1,120p' "$test_dir/transient-switch.log" >&2
+  exit 1
+fi
 [[ -e "$transient_marker" ]]
 grep -Fq '正在停止残留 daemon，并重试一次同一模式' \
   "$test_dir/transient-switch.log"
@@ -304,7 +312,15 @@ printf 'ROLLBACK\n' | env "${common_env[@]}" \
 cmp -s "$third_party_unit" "$backup_dir/codex-remote-provider.service"
 cmp -s "$official_unit" "$backup_dir/codex-remote-official.service"
 cmp -s "$command_file" "$backup_dir/codex-rp"
-cmp -s "$config_file" "$backup_dir/config.toml"
+python3 - "$config_file" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    config = tomllib.load(handle)
+assert "model_provider" not in config
+assert config["model"] == "official-model"
+assert config["model_reasoning_effort"] == "medium"
+assert "third_party" not in config.get("model_providers", {})
+PY
 cmp -s "$shell_rc_file" "$backup_dir/bashrc"
 [[ ! -e "$secret_file" ]]
 [[ ! -e "$state_file" ]]

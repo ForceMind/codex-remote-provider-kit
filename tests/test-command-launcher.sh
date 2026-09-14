@@ -27,9 +27,23 @@ grep -Fxq '# Managed by codex-remote-provider-kit' "$launcher"
 [[ $(cd /tmp && "$launcher") == 'called:menu' ]]
 [[ -f "$test_dir/update-ran" ]]
 rm -f "$test_dir/update-ran"
-[[ $(cd /tmp && "$launcher" --version) == 'called:version' ]]
-[[ -f "$test_dir/update-ran" ]]
-rm -f "$test_dir/update-ran"
+[[ $(cd /tmp && "$launcher" --version) == 'called:--version' ]]
+[[ ! -e "$test_dir/update-ran" ]]
+[[ $(cd /tmp && "$launcher" help) == 'called:help' ]]
+[[ ! -e "$test_dir/update-ran" ]]
+for command in status doctor rollback uninstall; do
+  [[ $(cd /tmp && "$launcher" "$command") == "called:$command" ]]
+  [[ ! -e "$test_dir/update-ran" ]]
+done
+for command in test official third-party reconfigure rotate-key update unknown; do
+  [[ $(cd /tmp && "$launcher" "$command") == "called:$command" ]]
+  [[ -f "$test_dir/update-ran" ]]
+  rm -f "$test_dir/update-ran"
+done
+[[ $(cd /tmp && "$launcher" status 'argument with spaces') == 'called:status argument with spaces' ]]
+[[ ! -e "$test_dir/update-ran" ]]
+[[ $(cd /tmp && "$launcher" --no-update status) == 'called:status' ]]
+[[ ! -e "$test_dir/update-ran" ]]
 
 managed_command="$test_dir/managed-command"
 install_global_command "$fake_setup" "$managed_command"
@@ -37,7 +51,7 @@ install_global_command "$fake_setup" "$managed_command"
 [[ -f "$test_dir/update-ran" ]]
 rm -f "$test_dir/update-ran"
 [[ $(cd / && "$managed_command" version) == 'called:version' ]]
-[[ -f "$test_dir/update-ran" ]]
+[[ ! -e "$test_dir/update-ran" ]]
 
 unmanaged_command="$test_dir/unmanaged-command"
 printf '#!/usr/bin/env bash\n' > "$unmanaged_command"

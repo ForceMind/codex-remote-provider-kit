@@ -8,12 +8,22 @@ source "$script_dir/lib.sh"
 ((EUID == 0)) || { printf '请以 root 身份运行\n' >&2; exit 1; }
 state_file=${CODEX_RP_STATE_FILE:-/var/lib/codex-remote-provider/state.env}
 [[ -r "$state_file" ]] || { printf '缺少状态文件\n' >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$state_file"
+read_codex_rp_state "$state_file" || exit 1
 third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
 official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-official.service}
 third_party_unit_name=${third_party_unit_file##*/}
 official_unit_name=${official_unit_file##*/}
+
+config_file="$CODEX_HOME_DIR/config.toml"
+profile_file="$CODEX_HOME_DIR/$PROVIDER_ID.config.toml"
+managed_provider_block_matches "$config_file" "$PROVIDER_ID" "$BASE_URL" "$ENV_NAME" \
+  || { printf '受管 provider 配置已被外部修改；拒绝切换\n' >&2; exit 1; }
+managed_profile_matches "$profile_file" "$PROVIDER_ID" "$MODEL" "$REASONING" \
+  || { printf '专用 profile 已被外部修改；拒绝切换\n' >&2; exit 1; }
+current_remote_config_mode "$config_file" "$BACKUP_DIR/config.toml" \
+  "$PROVIDER_ID" "$MODEL" "$REASONING"
+[[ "$CODEX_RP_CONFIG_MODE" != external && "$CODEX_RP_CONFIG_MODE" != inconsistent ]] \
+  || { printf '检测到外部或不一致的顶层配置；拒绝覆盖\n' >&2; exit 1; }
 
 printf '此操作将停止第三方供应商 Remote，并启动默认供应商。\n'
 printf '可能会消耗官方额度。是否继续？[y/N]：'
@@ -25,7 +35,6 @@ case "$confirmation" in
 esac
 
 CODEX_RP_STATE_FILE="$state_file" "$script_dir/refresh-units.sh"
-config_file="$CODEX_HOME_DIR/config.toml"
 original_config=$(mktemp)
 cp -p "$config_file" "$original_config"
 cleanup() { rm -f "$original_config"; }

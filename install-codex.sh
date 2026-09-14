@@ -20,6 +20,21 @@ EOF
 
 die() { printf '错误：%s\n' "$*" >&2; exit 1; }
 
+download_connect_timeout=${CODEX_RP_DOWNLOAD_CONNECT_TIMEOUT:-10}
+download_max_time=${CODEX_RP_DOWNLOAD_MAX_TIME:-60}
+download_retries=${CODEX_RP_DOWNLOAD_RETRIES:-2}
+download_retry_delay=${CODEX_RP_DOWNLOAD_RETRY_DELAY:-1}
+for limit in "$download_connect_timeout" "$download_max_time" "$download_retries" "$download_retry_delay"; do
+  [[ "$limit" =~ ^[0-9]+$ ]] || die '下载超时和重试参数必须是非负整数'
+done
+((download_connect_timeout > 0 && download_max_time > 0)) || die '下载连接和总超时必须大于零'
+
+download_to_stdout() {
+  curl --fail --silent --show-error --location \
+    --connect-timeout "$download_connect_timeout" --max-time "$download_max_time" \
+    --retry "$download_retries" --retry-delay "$download_retry_delay" --retry-connrefused "$1"
+}
+
 codex_bin_override=''
 while (($#)); do
   case "$1" in
@@ -100,7 +115,7 @@ elif [[ -n "$codex_bin_override" ]]; then
 else
   install_system_dependencies
   printf '未检测到兼容的 Codex CLI，正在运行 OpenAI 官方独立安装器……\n'
-  curl -fsSL https://chatgpt.com/codex/install.sh | sh
+  download_to_stdout https://chatgpt.com/codex/install.sh | sh
   hash -r
   for candidate in /root/.local/bin/codex /usr/local/bin/codex /usr/bin/codex; do
     if [[ -x "$candidate" ]] && "$candidate" remote-control start --help >/dev/null 2>&1; then

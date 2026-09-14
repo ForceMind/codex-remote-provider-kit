@@ -3,6 +3,22 @@
 本项目遵循语义化版本。版本号的唯一来源是仓库根目录的 `VERSION` 文件；Git 标签和
 GitHub Release 使用对应的 `v<version>` 名称。
 
+## 1.1.0 - 2026-09-14
+
+### 新增
+
+- 三平台新增 `doctor`、桌面端 `reconfigure`、`rollback --dry-run` 和 `uninstall` 别名。
+- development 清单校验、显式 stable 通道、Release manifest 与 SHA-256 校验。
+- 发布清单 schema、release preflight 和本地网络失败测试。
+
+### 稳定性与安全
+
+- 修复 Linux 全局 `codex-rp` 子命令转发；帮助和版本查询不再依赖网络。
+- Linux 状态文件改为允许字段解析，不再直接执行其内容。
+- Linux/Windows 回滚使用所有权保护的选择性撤销，保留外部新增配置。
+- Keychain/DPAPI/密钥文件删除失败不再误报完整回滚成功。
+- Windows 菜单失败后返回，ChatGPT 优先优雅退出；macOS/Windows 重配置保留当前模式。
+
 ## 1.0.0 - 2026-08-12
 
 首个稳定版本，覆盖 Linux/systemd、macOS 和 Windows 的第三方 provider 管理流程。

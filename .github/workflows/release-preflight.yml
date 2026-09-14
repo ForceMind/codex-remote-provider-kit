@@ -1,0 +1,29 @@
+name: Release preflight
+
+on:
+  pull_request:
+    paths:
+      - VERSION
+      - CHANGELOG.md
+      - '*.sh'
+      - tests/**
+      - scripts/release-preflight.sh
+      - schemas/**
+      - .github/workflows/release-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Validate release candidate
+        run: bash scripts/release-preflight.sh
+      - name: Run updater and installer tests
+        run: |
+          bash tests/test-version.sh
+          bash tests/test-online-installer.sh
+          bash tests/test-auto-update.sh

@@ -14,9 +14,24 @@ state_file=${CODEX_RP_STATE_FILE:-/var/lib/codex-remote-provider/state.env}
 secret_file=${CODEX_RP_SECRET_FILE:-/etc/codex-remote-provider/provider.env}
 [[ -r "$state_file" ]] || { printf '缺少安装状态，请先完成安装\n' >&2; exit 1; }
 [[ -r "$secret_file" ]] || { printf '缺少第三方密钥文件\n' >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$state_file"
+read_codex_rp_state "$state_file" || exit 1
 
+config_file="$CODEX_HOME_DIR/config.toml"
+profile_file="$CODEX_HOME_DIR/$PROVIDER_ID.config.toml"
+managed_provider_block_matches "$config_file" "$PROVIDER_ID" "$BASE_URL" "$ENV_NAME" || {
+  printf '错误：受管 provider 区块已被外部修改或存在同名冲突；拒绝重新配置\n' >&2
+  exit 1
+}
+managed_profile_matches "$profile_file" "$PROVIDER_ID" "$MODEL" "$REASONING" || {
+  printf '错误：专用 profile 已被外部修改；拒绝重新配置\n' >&2
+  exit 1
+}
+current_remote_config_mode "$config_file" "$BACKUP_DIR/config.toml" \
+  "$PROVIDER_ID" "$MODEL" "$REASONING"
+[[ "$CODEX_RP_CONFIG_MODE" != external && "$CODEX_RP_CONFIG_MODE" != inconsistent ]] || {
+  printf '错误：检测到外部或不一致的顶层配置；拒绝覆盖\n' >&2
+  exit 1
+}
 base_url=$BASE_URL
 model=$MODEL
 reasoning=$REASONING
@@ -67,8 +82,6 @@ trap cleanup EXIT
 cp -p "$secret_file" "$work_dir/secret"
 cp -p "$state_file" "$work_dir/state"
 
-config_file="$CODEX_HOME_DIR/config.toml"
-profile_file="$CODEX_HOME_DIR/$PROVIDER_ID.config.toml"
 third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
 third_party_unit_name=${third_party_unit_file##*/}
 third_party_was_active='no'

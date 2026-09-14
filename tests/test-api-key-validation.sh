@@ -32,7 +32,11 @@ done
 
 secret_file="$test_dir/provider.env"
 write_secret_environment_file "$secret_file" TEST_PROVIDER_KEY '~'
-[[ $(stat -c '%a' "$secret_file") == 600 ]]
+if stat -f '%Lp' "$secret_file" >/dev/null 2>&1; then
+  [[ $(stat -f '%Lp' "$secret_file") == 600 ]]
+else
+  [[ $(stat -c '%a' "$secret_file") == 600 ]]
+fi
 unset TEST_PROVIDER_KEY
 # shellcheck disable=SC1090
 source "$secret_file"

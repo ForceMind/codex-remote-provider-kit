@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex Remote Provider Kit release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["channel", "version", "source_revision", "archive_url", "archive_sha256"],
+  "properties": {
+    "channel": { "type": "string", "enum": ["stable", "development"] },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$" },
+    "source_revision": { "type": "string", "pattern": "^[0-9A-Za-z._/-]+$" },
+    "archive_url": { "type": "string", "pattern": "^https://.+" },
+    "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
