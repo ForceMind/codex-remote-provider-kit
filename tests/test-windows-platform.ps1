@@ -98,9 +98,10 @@ shell_tool = true
 
     Remove-Item Env:CODEX_RP_CONFIRMATION
     & $entry third-party
-    $thirdPartyConfig = [System.IO.File]::ReadAllText($configFile)
     & $entry test
+    $global:LASTEXITCODE = 0
     & $entry rotate-key
+    $thirdPartyConfig = [System.IO.File]::ReadAllText($configFile)
 
     [System.IO.File]::WriteAllText($configFile, $thirdPartyConfig.Replace('model_provider = "third_party"', 'model_provider = "external_provider"'))
     $externalStatus = (& $entry doctor *>&1 | Out-String)
@@ -131,6 +132,7 @@ shell_tool = true
     if (-not (Get-ChildItem -LiteralPath (Join-Path $dataDir 'audit') -Directory -Filter 'state-*')) { throw 'Audit state was not retained.' }
 
     Write-Host 'Windows platform lifecycle: ok'
+    $global:LASTEXITCODE = 0
 }
 finally {
     Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue

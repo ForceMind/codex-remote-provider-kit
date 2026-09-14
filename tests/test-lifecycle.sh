@@ -106,8 +106,8 @@ wire_api = "responses"
 # END codex-remote-provider-kit:third_party
 EOF
 cat > "$profile_file" <<'EOF'
-model_provider = "third_party"
 model = "gpt-5.6-sol"
+model_provider = "third_party"
 model_reasoning_effort = "high"
 EOF
 printf '# original third-party unit\n' > "$backup_dir/codex-remote-provider.service"
