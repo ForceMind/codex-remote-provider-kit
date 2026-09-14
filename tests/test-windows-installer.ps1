@@ -13,7 +13,7 @@ $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $originalProcessPath = $env:Path
 
 function Invoke-InstallerChild {
-    $shell = if ($IsWindows) { 'powershell.exe' } else { (Get-Command pwsh).Source }
+    $shell = if ($env:OS -eq 'Windows_NT') { 'powershell.exe' } else { (Get-Command pwsh).Source }
     $process = Start-Process -FilePath $shell -ArgumentList @(
         '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $installer + '"')
     ) -Wait -PassThru

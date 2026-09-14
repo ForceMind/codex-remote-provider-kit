@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'printf "lifecycle test failed at line %d\n" "$LINENO" >&2' ERR
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 IFS= read -r expected_version < "$repo_dir/VERSION"
