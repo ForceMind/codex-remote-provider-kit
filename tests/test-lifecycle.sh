@@ -97,10 +97,13 @@ model_provider = "third_party"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 
+# BEGIN codex-remote-provider-kit:third_party
 [model_providers.third_party]
+name = "third_party"
 base_url = "https://gateway.test/v1"
 env_key = "TEST_PROVIDER_KEY"
 wire_api = "responses"
+# END codex-remote-provider-kit:third_party
 EOF
 cat > "$profile_file" <<'EOF'
 model_provider = "third_party"

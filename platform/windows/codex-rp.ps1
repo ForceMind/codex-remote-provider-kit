@@ -356,7 +356,7 @@ function Test-ManagedProfile($State) {
         ('model_provider = "' + (ConvertTo-TomlString $State.provider_id) + '"'),
         ('model_reasoning_effort = "' + (ConvertTo-TomlString $State.reasoning) + '"')
     ) -join "`n"
-    return ([System.IO.File]::ReadAllText($profileFile).Trim() -eq $expected)
+    return (([System.IO.File]::ReadAllText($profileFile).Trim() -replace "`r`n", "`n") -eq $expected)
 }
 
 function Get-ConfigurationMode($State) {
