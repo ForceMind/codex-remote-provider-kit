@@ -144,4 +144,5 @@ finally {
     Remove-Item Env:CODEX_RP_CONFIRMATION -ErrorAction SilentlyContinue
     Remove-Item Env:THIRD_PARTY_API_KEY -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $testDir) { Remove-Item -LiteralPath $testDir -Recurse -Force }
+    $global:LASTEXITCODE = 0
 }

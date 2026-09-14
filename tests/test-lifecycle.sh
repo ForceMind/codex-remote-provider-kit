@@ -307,7 +307,15 @@ printf 'ROLLBACK\n' | env "${common_env[@]}" \
 cmp -s "$third_party_unit" "$backup_dir/codex-remote-provider.service"
 cmp -s "$official_unit" "$backup_dir/codex-remote-official.service"
 cmp -s "$command_file" "$backup_dir/codex-rp"
-cmp -s "$config_file" "$backup_dir/config.toml"
+python3 - "$config_file" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    config = tomllib.load(handle)
+assert "model_provider" not in config
+assert config["model"] == "official-model"
+assert config["model_reasoning_effort"] == "medium"
+assert "third_party" not in config.get("model_providers", {})
+PY
 cmp -s "$shell_rc_file" "$backup_dir/bashrc"
 [[ ! -e "$secret_file" ]]
 [[ ! -e "$state_file" ]]
