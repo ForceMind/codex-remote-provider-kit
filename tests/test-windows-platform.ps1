@@ -7,7 +7,8 @@ $homeDir = Join-Path $testDir 'home'
 $codexHome = Join-Path $homeDir '.codex'
 $dataDir = Join-Path $testDir 'data'
 $mockScript = Join-Path $testDir 'mock-codex.ps1'
-    $mockCommand = if ($IsWindows) { Join-Path $testDir 'codex.cmd' } else { $mockScript }
+    $isNativeWindows = ($env:OS -eq 'Windows_NT')
+$mockCommand = if ($isNativeWindows) { Join-Path $testDir 'codex.cmd' } else { $mockScript }
 
 $entry = Join-Path $repoDir 'platform\windows\codex-rp.ps1'
 
@@ -28,7 +29,7 @@ switch ($Remaining[0]) {
     default { exit 2 }
 }
 '@ | Set-Content -LiteralPath $mockScript -Encoding UTF8
-    if ($IsWindows) {
+    if ($isNativeWindows) {
         '@echo off' + "`r`n" + 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $mockScript + '" %*' + "`r`n" | Set-Content -LiteralPath $mockCommand -Encoding ASCII
     }
 

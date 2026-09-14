@@ -41,8 +41,7 @@ for command in test official third-party reconfigure rotate-key update unknown; 
   rm -f "$test_dir/update-ran"
 done
 [[ $(cd /tmp && "$launcher" status 'argument with spaces') == 'called:status argument with spaces' ]]
-[[ -f "$test_dir/update-ran" ]]
-rm -f "$test_dir/update-ran"
+[[ ! -e "$test_dir/update-ran" ]]
 [[ $(cd /tmp && "$launcher" --no-update status) == 'called:status' ]]
 [[ ! -e "$test_dir/update-ran" ]]
 
