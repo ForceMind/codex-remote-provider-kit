@@ -436,20 +436,22 @@ if lines.count(begin) != 1 or lines.count(end) != 1:
 start, finish = lines.index(begin), lines.index(end)
 if finish <= start:
     raise SystemExit(1)
-actual = lines[start:finish + 1]
-expected = [
-    begin,
-    f"[model_providers.{provider}]",
-    f'name = "{provider}"',
-    f'base_url = "{base_url}"',
-    f'env_key = "{env_name}"',
-    'wire_api = "responses"',
-    end,
-]
-if actual != expected:
-    raise SystemExit(1)
 section = re.compile(r"^\s*\[model_providers\." + re.escape(provider) + r"\]\s*$")
 if sum(bool(section.match(line)) for line in lines) != 1:
+    raise SystemExit(1)
+try:
+    import tomllib
+    data = tomllib.loads(path.read_text())
+except (ImportError, tomllib.TOMLDecodeError):
+    raise SystemExit(1)
+actual = data.get("model_providers", {}).get(provider)
+expected = {
+    "name": provider,
+    "base_url": base_url,
+    "env_key": env_name,
+    "wire_api": "responses",
+}
+if actual != expected:
     raise SystemExit(1)
 PY
 }
