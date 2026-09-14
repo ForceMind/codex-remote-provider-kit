@@ -98,7 +98,8 @@ for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
     value = words[0][len("value="):]
     if "\n" in value or "\r" in value:
         raise SystemExit(f"状态文件第 {number} 行包含换行")
-    sys.stdout.buffer.write(key.encode() + b"\0" + value.encode() + b"\0")
+    escaped = value.replace("'", "'\\''")
+    print(f"{key}='{escaped}'")
 PY
   then
     rm -f "$parsed_file"
@@ -106,14 +107,18 @@ PY
     return 1
   fi
 
-  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+  while IFS= read -r key; do
+    key=${key%%=*}
     [[ "$allowed_keys" == *" $key "* ]] || {
       rm -f "$parsed_file"
       printf '状态文件包含未知字段：%s\n' "$key" >&2
       return 1
     }
-    printf -v "$key" '%s' "$value"
   done < "$parsed_file"
+  # parsed_file is generated locally from decoded scalar values and contains
+  # only allowlisted, single-quoted assignments.
+  # shellcheck disable=SC1090
+  source "$parsed_file"
   rm -f "$parsed_file"
 }
 

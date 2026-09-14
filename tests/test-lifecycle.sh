@@ -240,7 +240,7 @@ if ! printf 'y\n' | env "${common_env[@]}" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   MOCK_FAIL_START_ONCE_UNIT="$official_name" \
   MOCK_FAIL_START_ONCE_MARKER="$transient_marker" \
-  bash -x "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1; then
+  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1; then
   printf 'transient switch output:\n' >&2
   sed -n '1,120p' "$test_dir/transient-switch.log" >&2
   exit 1
