@@ -26,13 +26,15 @@ usage() {
   menu          打开交互式管理面板
   install       安装 Codex（如缺少）、启动 Remote 并完整验证（默认）
   codex         仅安装/检查 Codex CLI 并完成 ChatGPT 登录
-  status        查看服务和配置状态，不生成模型回复
+  status        查看本地服务和配置状态，不访问模型接口
+  doctor       分层诊断；支持 --network、--full 和本地 --json
   test          检查接口并执行一次最小化的真实 Codex 回合
   official      手动将 Remote 切换到默认/官方供应商
   third-party   启动或切换到已安装的第三方供应商
   reconfigure   修改第三方接口、模型、推理强度，可选择同时更换密钥
   rotate-key    仅更换第三方 API 密钥
-  rollback      恢复安装前配置并移除已保存的密钥
+  rollback      恢复安装前配置并移除已保存的密钥；支持 --dry-run
+  uninstall     rollback 的兼容别名，同样完整撤销本工具
   version       显示套件版本
   help          显示本帮助
 
@@ -64,7 +66,7 @@ if (($#)); then shift; fi
 case "$command_name" in
   help|-h|--help) usage; exit 0 ;;
   version|-V|--version) printf 'codex-remote-provider-kit %s\n' "$kit_version"; exit 0 ;;
-  menu|install|codex|status|test|official|third-party|start|reconfigure|rotate-key|rollback) ;;
+  menu|install|codex|status|doctor|test|official|third-party|start|reconfigure|rotate-key|rollback|uninstall|update) ;;
   *)
     printf '错误：未知命令：%s\n\n' "$command_name" >&2
     usage >&2
@@ -237,8 +239,11 @@ case "$command_name" in
     "$script_dir/install-codex.sh" "$@"
     ;;
   status)
-    (($# == 0)) || { printf '错误：status 命令不接受选项\n' >&2; exit 2; }
-    "$script_dir/status.sh"
+    (($# == 0)) || { printf '错误：status 命令不接受选项；分层诊断请使用 doctor\n' >&2; exit 2; }
+    "$script_dir/doctor.sh"
+    ;;
+  doctor)
+    "$script_dir/doctor.sh" "$@"
     ;;
   test)
     (($# == 0)) || { printf '错误：test 命令不接受选项\n' >&2; exit 2; }
@@ -261,8 +266,14 @@ case "$command_name" in
     (($# == 0)) || { printf '错误：rotate-key 命令不接受选项\n' >&2; exit 2; }
     "$script_dir/reconfigure.sh" --key-only
     ;;
-  rollback)
-    (($# == 0)) || { printf '错误：rollback 命令不接受选项\n' >&2; exit 2; }
-    "$script_dir/rollback.sh"
+  rollback|uninstall)
+    case $# in
+      0) "$script_dir/rollback.sh" ;;
+      1) [[ $1 == --dry-run ]] || { printf '错误：%s 仅接受 --dry-run\n' "$command_name" >&2; exit 2; }; "$script_dir/rollback.sh" --dry-run ;;
+      *) printf '错误：%s 仅接受 --dry-run\n' "$command_name" >&2; exit 2 ;;
+    esac
+    ;;
+  update)
+    "$script_dir/auto-update.sh" "$@"
     ;;
 esac

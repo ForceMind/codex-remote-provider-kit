@@ -47,6 +47,8 @@ $requestedBinDir = if ($env:CODEX_RP_BIN_DIR) { $env:CODEX_RP_BIN_DIR } else { J
 $installDir = Get-SafeDirectory $requestedInstallDir '安装目录'
 $binDir = Get-SafeDirectory $requestedBinDir '命令目录'
 $archiveUrl = if ($env:CODEX_RP_ARCHIVE_URL) { $env:CODEX_RP_ARCHIVE_URL } else { "https://github.com/$repoSlug/archive/refs/heads/$repoRef.zip" }
+$downloadTimeoutSec = if ($env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC) { [int] $env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC } else { 60 }
+if ($downloadTimeoutSec -lt 1 -or $downloadTimeoutSec -gt 600) { Fail '下载超时必须介于 1 到 600 秒。' }
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('codex-rp-' + [Guid]::NewGuid().ToString('N'))
 $archiveFile = Join-Path $temporaryRoot 'source.zip'
 $extractDir = Join-Path $temporaryRoot 'source'
@@ -85,7 +87,8 @@ try {
         Copy-Item -LiteralPath $launcherScript -Destination (Join-Path $launcherBackupDir 'codex-rp-launch.ps1')
     }
 
-    Write-Host "正在下载 $repoSlug（$repoRef）……"
+    Write-Host "正在下载 $repoSlug（$repoRef），超时 $downloadTimeoutSec 秒……"
+    Write-Host '更新会下载并事务替换受管工具目录；不会读取或改写 DPAPI 凭据、Codex 配置或 ChatGPT Remote。'
     if ($archiveUrl -match '^file://') {
         Copy-Item -LiteralPath ([Uri] $archiveUrl).LocalPath -Destination $archiveFile
     }
@@ -93,7 +96,7 @@ try {
         Copy-Item -LiteralPath $archiveUrl -Destination $archiveFile
     }
     else {
-        Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $archiveFile
+        Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $archiveFile -TimeoutSec $downloadTimeoutSec
     }
     Expand-Archive -LiteralPath $archiveFile -DestinationPath $extractDir -Force
     $sourceRoots = @(Get-ChildItem -LiteralPath $extractDir -Directory)

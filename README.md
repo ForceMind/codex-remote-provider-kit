@@ -4,7 +4,7 @@
 OpenAI Responses API 的第三方接口，同时保留 Remote 所需的官方 ChatGPT 登录、
 workspace、设备配对和消息通道。
 
-当前稳定版本：**1.0.0**。版本历史见 [CHANGELOG.md](CHANGELOG.md)，终端可运行
+当前稳定版本：**1.1.0**。版本历史见 [CHANGELOG.md](CHANGELOG.md)，终端可运行
 `codex-rp --version` 查看已安装版本。
 
 > 重要：这不是“完全绕过官方账户”。远控配对、登录和消息传输仍依赖官方
@@ -111,10 +111,15 @@ codex-rp
 codex-rp --version
 ```
 
-由在线安装器部署的 Linux/macOS 版本会在每次启动 `codex-rp` 时先下载并
-比较 `main` 归档。源标识一致时不替换目录、不生成重复备份；只有确认是新版本
-时才事务替换程序目录。下载或更新失败会明确警告，然后继续使用当前
-版本进入面板；不会读取或改写 API 密钥，不切换 provider，不重启 Remote。
+由在线安装器部署的 Linux/macOS 版本当前默认使用 `development` 更新通道，以保持与
+现有 `main` 在线入口兼容。development 清单存在时会校验 SHA-256；清单尚未发布时会
+明确警告并使用 GitHub HTTPS 的 `main` 归档，不宣称具备独立制品完整性。发布方上传
+固定 Release 清单和归档后，用户可明确切换到 `stable`，stable 绝不回退跟踪 `main`。
+
+本地帮助和版本查询不会检查网络。其他命令可使用 `codex-rp --no-update <命令>`
+跳过本次检查，也可使用 `codex-rp update status|check|apply` 查看或执行更新；
+`codex-rp update channel stable|development` 明确切换通道。stable 清单与归档的
+SHA-256 仍共享 GitHub 仓库和 Release 的信任边界，不等同于独立密码学签名。
 
 自动更新只会处理带有在线安装源标识的受管目录；Git 克隆的开发工作区和
 手工解压目录不会被自动覆盖。从不含该功能的旧版升级时，需先重新运行一次
@@ -277,11 +282,11 @@ provider 拦截、官方状态安装、Keychain 凭据读取、菜单自动返�
 `/usr/bin/security` 读取令牌；不会把密钥写入 TOML。
 
 如果已经使用 CC Switch 或其他 Codex provider 管理工具，安装前必须先在该工具中
-切换到 OpenAI 官方配置。macOS 安装器会在读取 API 密钥前自动检查：顶层
-`model_provider` 只能未设置或为 `openai`，并且 `codex login status` 必须确认使用
-ChatGPT 登录；检测到外部 provider 时会直接停止，不覆盖现有配置。交互安装还要求
-输入 `OFFICIAL` 确认。Provider ID 或专用 profile 与现有工具冲突时，也会在读取密钥
-前停止并要求更换 ID。安装后不要让两个工具同时执行切换。
+切换到 OpenAI 官方配置。macOS 和 Windows 都会在读取或写入本工具配置前检查顶层
+provider、受管区块和专用 profile；检测到外部选择或同名冲突时停止，不覆盖外部
+配置。安装后仍必须遵循单一写入者原则：先在一个工具中切回官方，再由另一个工具
+接管，不能同时点击切换。本项目专注 Codex Remote 宿主、凭据和恢复；CC Switch 更
+适合多 AI 工具的 GUI、服务商、MCP/Skills 和代理管理，两者不是彼此替代的完整超集。
 
 首次打开面板还会创建
 `~/Applications/Codex 远程模型服务工具.app`，可从 Finder 或 Spotlight 直接双击，
@@ -350,13 +355,17 @@ WSL2 默认使用另一份 `~/.codex`，不会自动与 Windows 应用共享配�
 `codex-rp` 命令：
 
 ```bash
-sudo ./setup.sh status       # 基础检查，不生成模型回复
+sudo ./setup.sh status       # 仅本地诊断，不访问第三方接口
+sudo ./setup.sh doctor --network  # 检查第三方模型目录，不生成回复
+sudo ./setup.sh doctor --full     # 流式接口和真实 Codex 回合
+sudo ./setup.sh doctor --json     # 脱敏的机器可读本地诊断
 sudo ./setup.sh test         # 完整真实调用检查
 sudo ./setup.sh official     # 人工切回官方推理
 sudo ./setup.sh third-party  # 切回第三方推理
 sudo ./setup.sh reconfigure  # 修改接口、模型或推理强度
 sudo ./setup.sh rotate-key   # 仅更换第三方 API Key
-sudo ./setup.sh rollback     # 完整回滚
+sudo ./setup.sh rollback --dry-run # 预览完整撤销
+sudo ./setup.sh uninstall    # rollback 的兼容别名
 ```
 
 也可以直接调用底层脚本。先做不产生模型回复的基础检查：
@@ -402,8 +411,15 @@ sudo ./use-third-party.sh
 完全撤销本套配置：
 
 ```bash
+sudo ./rollback.sh --dry-run
 sudo ./rollback.sh
 ```
+
+回滚采用所有权保护的选择性撤销：只移除本工具的 provider 区块和受管对象，恢复
+三项官方默认值，并保留安装后新增的其他 provider 和无关用户配置。若顶层选择、
+同名 provider、profile、unit 或 launcher 的所有权不明确，操作会在删除凭据和停止
+服务之前拒绝继续。`codex-rp uninstall` 是同一实现的易懂别名，不会删除 ChatGPT
+登录、Remote 配对或 Codex sessions。
 
 回滚会将不含密钥的安装状态移动到
 `/var/lib/codex-remote-provider/audit/` 作为审计记录，并移除活动状态文件，因此

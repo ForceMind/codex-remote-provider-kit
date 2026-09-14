@@ -28,8 +28,7 @@ esac
 state_file=${CODEX_RP_STATE_FILE:-/var/lib/codex-remote-provider/state.env}
 secret_file=${CODEX_RP_SECRET_FILE:-/etc/codex-remote-provider/provider.env}
 [[ -r "$state_file" ]] || { printf '缺少状态文件：%s\n' "$state_file" >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$state_file"
+read_codex_rp_state "$state_file" || exit 1
 
 third_party_unit_file=${THIRD_PARTY_UNIT_FILE:-/etc/systemd/system/codex-remote-provider.service}
 official_unit_file=${OFFICIAL_UNIT_FILE:-/etc/systemd/system/codex-remote-official.service}

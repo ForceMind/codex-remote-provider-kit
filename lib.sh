@@ -45,19 +45,11 @@ write_secret_environment_file() {
 read_secret_environment_value() {
   local secret_file=${1:?secret file required}
   local env_name=${2:?environment variable name required}
-  local first_line extra_line value prefix secret_fd
+  local first_line extra_line value prefix
 
   [[ "$env_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
-  exec {secret_fd}< "$secret_file" || return 1
-  IFS= read -r first_line <&"$secret_fd" || {
-    exec {secret_fd}<&-
-    return 1
-  }
-  if IFS= read -r extra_line <&"$secret_fd"; then
-    exec {secret_fd}<&-
-    return 1
-  fi
-  exec {secret_fd}<&-
+  IFS= read -r first_line < "$secret_file" || return 1
+  [[ $(wc -l < "$secret_file") -eq 1 ]] || return 1
 
   prefix="$env_name="
   [[ "$first_line" == "$prefix"* ]] || return 1
@@ -69,6 +61,69 @@ read_secret_environment_value() {
   fi
   is_supported_api_key "$value" || return 1
   CODEX_RP_SECRET_VALUE=$value
+}
+
+read_managed_state() {
+  local state_file=${1:?state file required}
+  shift
+  local allowed_keys=" $* " parsed_file key value
+
+  [[ -f "$state_file" && ! -L "$state_file" && -r "$state_file" ]] || {
+    printf '状态文件不存在、不可读或不是普通文件：%s\n' "$state_file" >&2
+    return 1
+  }
+  command -v python3 >/dev/null 2>&1 || {
+    printf '读取状态需要 Python 3\n' >&2
+    return 1
+  }
+  parsed_file=$(mktemp) || return 1
+  if ! python3 - "$state_file" > "$parsed_file" <<'PY'
+import pathlib
+import re
+import shlex
+import sys
+
+path = pathlib.Path(sys.argv[1])
+for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
+    if not match:
+        raise SystemExit(f"状态文件第 {number} 行语法无效")
+    key, encoded = match.groups()
+    try:
+        words = shlex.split(f"value={encoded}", posix=True)
+    except ValueError as error:
+        raise SystemExit(f"状态文件第 {number} 行编码无效：{error}")
+    if len(words) != 1 or not words[0].startswith("value="):
+        raise SystemExit(f"状态文件第 {number} 行包含不受支持的语法")
+    value = words[0][len("value="):]
+    if "\n" in value or "\r" in value:
+        raise SystemExit(f"状态文件第 {number} 行包含换行")
+    sys.stdout.buffer.write(key.encode() + b"\0" + value.encode() + b"\0")
+PY
+  then
+    rm -f "$parsed_file"
+    printf '无法安全解析状态文件：%s\n' "$state_file" >&2
+    return 1
+  fi
+
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    [[ "$allowed_keys" == *" $key "* ]] || {
+      rm -f "$parsed_file"
+      printf '状态文件包含未知字段：%s\n' "$key" >&2
+      return 1
+    }
+    printf -v "$key" '%s' "$value"
+  done < "$parsed_file"
+  rm -f "$parsed_file"
+}
+
+read_codex_rp_state() {
+  read_managed_state "${1:?state file required}" \
+    PROVIDER_ID ENV_NAME BASE_URL MODEL REASONING CODEX_HOME_DIR CODEX_BIN_PATH \
+    COMMAND_FILE BACKUP_DIR THIRD_PARTY_UNIT_FILE OFFICIAL_UNIT_FILE \
+    THIRD_PARTY_UNIT_EXISTED THIRD_PARTY_UNIT_ENABLED THIRD_PARTY_UNIT_ACTIVE \
+    OFFICIAL_UNIT_EXISTED OFFICIAL_UNIT_ENABLED OFFICIAL_UNIT_ACTIVE \
+    COMMAND_EXISTED SHELL_RC_FILE SHELL_RC_EXISTED LEGACY_ENABLED LEGACY_ACTIVE
 }
 
 write_command_launcher() {
@@ -84,9 +139,11 @@ write_command_launcher() {
     printf '%s\n' "$marker"
     printf 'kit_dir=%q\n' "$kit_dir"
     printf 'setup_script=%q\n' "$setup_script"
-    printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
-    printf 'case "${1-}" in version|-V|--version) exec "$setup_script" version ;; esac\n'
-    printf 'exec "$setup_script" menu "$@"\n'
+    printf 'case "${1-}" in help|-h|--help|version|-V|--version|status|doctor|rollback|uninstall) exec "$setup_script" "$@" ;; esac\n'
+    printf 'if [[ ${1-} == --no-update ]]; then shift; export CODEX_RP_SKIP_AUTO_UPDATE=1; fi\n'
+    printf 'if [[ -x "$kit_dir/auto-update.sh" && ${CODEX_RP_SKIP_AUTO_UPDATE:-0} != 1 ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+    printf 'if (($#)); then exec "$setup_script" "$@"; fi\n'
+    printf 'exec "$setup_script" menu\n'
   } > "$target_file"
   chmod 755 "$target_file"
 }
@@ -353,6 +410,111 @@ restore_remote_service_selection() {
     start_remote_systemd_unit "$codex_bin" "$official_unit" \
       >/dev/null 2>&1 || true
   fi
+}
+
+managed_provider_block_matches() {
+  local config_file=${1:?config file required}
+  local provider_id=${2:?provider id required}
+  local base_url=${3:?base url required}
+  local env_name=${4:?environment name required}
+
+  python3 - "$config_file" "$provider_id" "$base_url" "$env_name" <<'PY'
+import pathlib, re, sys
+path, provider, base_url, env_name = pathlib.Path(sys.argv[1]), *sys.argv[2:]
+if not path.is_file():
+    raise SystemExit(1)
+lines = path.read_text().splitlines()
+begin = f"# BEGIN codex-remote-provider-kit:{provider}"
+end = f"# END codex-remote-provider-kit:{provider}"
+if lines.count(begin) != 1 or lines.count(end) != 1:
+    raise SystemExit(1)
+start, finish = lines.index(begin), lines.index(end)
+if finish <= start:
+    raise SystemExit(1)
+actual = lines[start:finish + 1]
+expected = [
+    begin,
+    f"[model_providers.{provider}]",
+    f'name = "{provider}"',
+    f'base_url = "{base_url}"',
+    f'env_key = "{env_name}"',
+    'wire_api = "responses"',
+    end,
+]
+if actual != expected:
+    raise SystemExit(1)
+section = re.compile(r"^\s*\[model_providers\." + re.escape(provider) + r"\]\s*$")
+if sum(bool(section.match(line)) for line in lines) != 1:
+    raise SystemExit(1)
+PY
+}
+
+managed_profile_matches() {
+  local profile_file=${1:?profile file required}
+  local provider_id=${2:?provider id required}
+  local model=${3:?model required}
+  local reasoning=${4:?reasoning effort required}
+  [[ -f "$profile_file" ]] || return 1
+  python3 - "$profile_file" "$provider_id" "$model" "$reasoning" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+expected = (
+    f'model = "{sys.argv[3]}"\n'
+    f'model_provider = "{sys.argv[2]}"\n'
+    f'model_reasoning_effort = "{sys.argv[4]}"\n'
+)
+raise SystemExit(path.read_text() != expected)
+PY
+}
+
+current_remote_config_mode() {
+  local config_file=${1:?config file required}
+  local backup_file=${2:?backup file required}
+  local provider_id=${3:?provider id required}
+  local model=${4:?model required}
+  local reasoning=${5:?reasoning effort required}
+
+  CODEX_RP_CONFIG_MODE=$(python3 - "$config_file" "$backup_file" \
+    "$provider_id" "$model" "$reasoning" <<'PY'
+import pathlib, sys, tomllib
+config_path, backup_path = map(pathlib.Path, sys.argv[1:3])
+try:
+    config = tomllib.loads(config_path.read_text())
+    original = tomllib.loads(backup_path.read_text()) if backup_path.is_file() else {}
+except (OSError, tomllib.TOMLDecodeError):
+    print("inconsistent")
+    raise SystemExit
+keys = ("model_provider", "model", "model_reasoning_effort")
+managed = dict(zip(keys, sys.argv[3:6]))
+if all(config.get(key) == value for key, value in managed.items()):
+    print("third-party")
+elif all(config.get(key) == original.get(key) for key in keys):
+    print("official")
+else:
+    print("external")
+PY
+  ) || return 1
+}
+
+remove_managed_provider_block() {
+  local config_file=${1:?config file required}
+  local provider_id=${2:?provider id required}
+  local temp_file begin_marker end_marker
+  begin_marker="# BEGIN codex-remote-provider-kit:$provider_id"
+  end_marker="# END codex-remote-provider-kit:$provider_id"
+  temp_file=$(mktemp)
+  awk -v begin="$begin_marker" -v end="$end_marker" '
+    $0 == begin { skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$config_file" > "$temp_file"
+  python3 - "$temp_file" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    tomllib.load(handle)
+PY
+  install -m 600 "$temp_file" "$config_file"
+  rm -f "$temp_file"
 }
 
 set_top_level_string() {

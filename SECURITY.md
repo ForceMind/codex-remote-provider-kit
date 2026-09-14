@@ -34,15 +34,16 @@ macOS 的 `.app` 快捷入口不包含密钥、配置或会话数据；它只记
 
 ## 自动更新信任边界
 
-Linux/macOS 的受管启动器会通过 HTTPS 从本仓库 `main` 下载安装器和源归档。
-这与 README 中的在线安装命令共享同一供应链信任边界：仓库或 GitHub 账户被攻破
-时，自动更新不能提供独立于 GitHub 的签名保证。启动器会校验安装器 Shell 语法和
-归档入口，但这不等同于密码学发布签名。
+Linux/macOS 的受管启动器当前默认使用 `development`。development 清单存在时验证
+归档 SHA-256；清单尚未发布时会明确警告并使用 GitHub HTTPS 的 `main` 归档，这条兼容
+路径不提供独立制品完整性保证。发布方提供固定 Release 清单和归档后可明确切换到
+`stable`，且 stable 不会回退到 `main`。即使有 SHA-256，清单与归档仍共享本仓库和
+GitHub 账户的信任边界：仓库、Release 或账户被攻破时，校验不能替代独立签名。
 
 自动更新只替换带在线安装源标识的套件程序目录，不读取密钥文件、Keychain 或
-DPAPI 凭据，不修改 Codex 用户配置，也不切换/重启 Remote。高保障或离线环境可设置
-`CODEX_RP_SKIP_AUTO_UPDATE=1`，先独立审查新版后再手工执行在线安装器。不要把私有镜像
-的访问凭据嵌入 `CODEX_RP_INSTALLER_URL`、终端截图或 Issue。
+DPAPI 凭据，不修改 Codex 用户配置，也不切换/重启 Remote。高保障或离线环境可使用
+`codex-rp --no-update <命令>` 或设置 `CODEX_RP_SKIP_AUTO_UPDATE=1`，先独立审查新版
+后再手工执行在线安装器。不要把私有镜像的访问凭据嵌入更新 URL、终端截图或 Issue。
 
 ## 密钥泄露后的处理
 

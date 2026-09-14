@@ -46,6 +46,7 @@ case "$command_name" in
   delete-generic-password)
     [[ " $* " == *' -a third_party '* ]]
     [[ " $* " == *' -s codex-remote-provider-kit:third_party '* ]]
+    [[ ${MOCK_SECURITY_DELETE_FAIL:-0} != 1 ]] || exit 55
     rm -f "$MOCK_KEYCHAIN_FILE"
     ;;
   *) exit 2 ;;
@@ -216,6 +217,7 @@ grep -Fxq 'Managed by codex-remote-provider-kit:macos-app' \
 grep -Fq 'com.forcemind.codex-remote-provider-kit' "$app_bundle/Contents/Info.plist"
 grep -Fq '<string>Codex 远程模型服务工具</string>' "$app_bundle/Contents/Info.plist"
 grep -Fq '<string>codex-rp.icns</string>' "$app_bundle/Contents/Info.plist"
+grep -Fq "<string>$expected_version</string>" "$app_bundle/Contents/Info.plist"
 cmp -s "$repo_dir/platform/macos/assets/codex-rp.icns" \
   "$app_bundle/Contents/Resources/codex-rp.icns"
 grep -Fq 'open -a Terminal' "$app_bundle/Contents/MacOS/codex-rp-launcher"
@@ -248,7 +250,28 @@ grep -Fq 'auto-update.sh' "$test_dir/bin/codex-rp"
 
 env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status \
   > "$test_dir/status-third.log"
+grep -Fq '结果：yes' "$test_dir/status-third.log"
 grep -Fq '当前模式：third-party' "$test_dir/status-third.log"
+status_json=$(env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" doctor --json)
+[[ "$status_json" == *'"mode":"third-party"'* ]]
+[[ "$status_json" == *'"local_checks":"yes"'* ]]
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" status --full \
+  > "$test_dir/status-full.log"
+grep -Fq 'Codex 回复：OK' "$test_dir/status-full.log"
+if env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" reconfigure \
+  --provider-id another_provider > "$test_dir/reconfigure-provider-id.log" 2>&1; then
+  printf 'macOS reconfigure 错误接受了 Provider ID 修改\n' >&2
+  exit 1
+fi
+grep -Fq '不支持修改 Provider ID' "$test_dir/reconfigure-provider-id.log"
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" reconfigure \
+  --base-url https://gateway-new.test/v1 --model gpt-5.7-sol --reasoning medium \
+  > "$test_dir/reconfigure-third.log"
+grep -Fq '当前模式保持 third-party' "$test_dir/reconfigure-third.log"
+grep -Fxq 'base_url = "https://gateway-new.test/v1"' "$config_file"
+grep -Fxq 'model = "gpt-5.7-sol"' "$config_file"
+grep -Fxq 'model_reasoning_effort = "medium"' "$config_file"
+grep -Fxq 'gpt-5.7-sol' "$test_dir/data/active/model"
 grep -Fq 'ChatGPT 桌面应用：运行中' "$test_dir/status-third.log"
 
 printf '2\n0\n' | env "${common_env[@]}" \
@@ -316,6 +339,20 @@ EOF
 printf 'RESTART_APP\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" restart-app > "$test_dir/restart.log"
 grep -Fq '已模拟重启 ChatGPT' "$test_dir/restart.log"
+env "${common_env[@]}" bash "$repo_dir/platform/macos/codex-rp.sh" uninstall --dry-run \
+  > "$test_dir/rollback-dry-run.log"
+grep -Fq '回滚预演通过' "$test_dir/rollback-dry-run.log"
+[[ -d "$test_dir/data/active" ]]
+[[ -f "$mock_keychain" ]]
+if printf 'ROLLBACK\n' | env "${common_env[@]}" MOCK_SECURITY_DELETE_FAIL=1 \
+  bash "$repo_dir/platform/macos/codex-rp.sh" rollback > "$test_dir/rollback-keychain-fail.log" 2>&1; then
+  printf 'macOS 回滚错误忽略了 Keychain 删除失败\n' >&2
+  exit 1
+fi
+grep -Fq 'Keychain 密钥删除失败' "$test_dir/rollback-keychain-fail.log"
+[[ -d "$test_dir/data/active" ]]
+[[ -f "$mock_keychain" ]]
+grep -Fxq '[model_providers.third_party]' "$config_file"
 
 printf 'ROLLBACK\n' | env "${common_env[@]}" \
   bash "$repo_dir/platform/macos/codex-rp.sh" rollback > "$test_dir/rollback.log"

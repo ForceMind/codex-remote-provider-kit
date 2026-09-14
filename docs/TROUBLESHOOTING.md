@@ -64,14 +64,17 @@ codex login status
 
 ## 启动时自动更新失败
 
-自动更新默认为失败开放：下载、语法校验或事务替换失败时会显示警告，然后
-继续启动当前本地版本。先检查服务器是否可通过 HTTPS 访问 `raw.githubusercontent.com`
-和 `github.com`，以及安装目录的父目录是否可写。不要为此输出代理凭据或完整
-环境变量。
+自动更新默认为失败开放：有界下载、清单/SHA-256 校验或事务替换失败时会显示警告，
+然后继续启动当前本地版本。当前默认 `development` 使用 `main` 的清单；明确切换到
+`stable` 后只接受 GitHub Release 清单，不会退回 `main`。若 stable 尚未发布对应清单，
+请继续使用 development 或等待发布，不要绕过 SHA-256 校验。先检查服务器是否可通过
+Release、`raw.githubusercontent.com` 和 `github.com`，以及安装目录父目录是否可写。
+不要为此输出代理凭据或完整环境变量。
 
 需要在断网环境中直接打开面板时：
 
 ```bash
+codex-rp --no-update status
 CODEX_RP_SKIP_AUTO_UPDATE=1 codex-rp
 ```
 

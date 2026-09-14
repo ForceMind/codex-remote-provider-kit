@@ -116,14 +116,23 @@ sudo ./setup.sh install
 codex-rp
 ```
 
-在线安装的 Linux/macOS 启动器会在打开面板前自动检查 `main`。归档未变时
-直接使用当前目录；出现新版时先备份旧程序目录，再事务替换。更新不会修改
-密钥、用户级 Codex 配置或当前 Remote 模式；失败时继续使用本地版本。临时
-需要跳过网络检查时，可以仅对当次命令设置：
+在线安装的 Linux/macOS 启动器当前默认使用 `development` 以兼容现有 `main` 在线
+入口。development 清单存在时验证 SHA-256；清单尚未发布时明确警告并使用 GitHub
+HTTPS 的 main 归档。发布方提供固定 Release 清单和归档后可明确切到 `stable`，且
+stable 不会回退跟踪 `main`。归档未变时直接使用当前目录；出现新版时先备份旧程序
+目录，再事务替换。更新不会修改密钥、用户级 Codex 配置或当前 Remote 模式；失败时
+继续使用本地版本。帮助和版本默认离线；其他命令临时跳过网络检查时可以使用：
 
 ```bash
+codex-rp --no-update status
 CODEX_RP_SKIP_AUTO_UPDATE=1 codex-rp
+codex-rp update status
+codex-rp update check
+codex-rp update channel stable
 ```
+
+SHA-256 能发现制品损坏或与清单不一致，但清单和归档仍共享 GitHub Release 的信任
+边界；它不是独立发布签名。
 
 安装会创建第三方 `codex-remote-provider.service` 与官方
 `codex-remote-official.service`，并且只启用当前所选模式。关闭面板不会停止
@@ -143,6 +152,23 @@ sudo ./setup.sh rollback
 第一次安装需要终端交互，不能在无人值守任务中把密钥直接写进命令行。若要
 自动化部署，应由服务器的秘密管理系统预先注入 `THIRD_PARTY_API_KEY` 环境变量，
 再运行 `sudo -E ./setup.sh`，并确保 CI 日志不会打印环境内容。
+
+## 状态、诊断与测试
+
+`status` 和无选项的 `doctor` 只检查本地安装、配置所有权、凭据可访问性、Codex
+登录和 Remote 宿主，不访问 provider，也不生成回复。Linux 还可运行：
+
+```bash
+sudo ./setup.sh doctor --network
+sudo ./setup.sh doctor --full
+sudo ./setup.sh doctor --json
+```
+
+`--network` 检查第三方 `/models`；`--full` 继续验证流式 Responses 和最小 Codex
+回合，可能产生少量第三方用量。官方模式即使指定 `--full` 也不会生成回复。
+`--json` 仅用于本地诊断，输出稳定检查 ID 和脱敏结果。systemd 的
+`active/exited` 或桌面 ChatGPT 进程存在都不能证明手机 Remote 端到端健康；最终仍需
+从手机创建新会话验证。
 
 ## 每次变更后的标准检查
 
@@ -263,8 +289,14 @@ shell 语法。确认新密钥正常后立即吊销旧密钥。
 ## 完整撤销
 
 ```bash
+sudo ./rollback.sh --dry-run
 sudo ./rollback.sh
 ```
+
+预演只展示影响范围，不停止服务、不改配置、不删除凭据。实际回滚只撤销能够证明由
+本工具拥有的 provider、profile、unit 和 launcher，恢复三项官方默认值，并保留安装
+后新增的无关配置。所有权冲突会在破坏性操作前阻断。`codex-rp uninstall` 是同一
+完整撤销实现的别名，不删除登录、配对或 sessions。
 
 脚本会恢复备份、移除持久化密钥和自定义 unit，并恢复安装前旧服务的启用/运行
 状态。审计状态文件会移动到 `/var/lib/codex-remote-provider/audit/`，不含 API

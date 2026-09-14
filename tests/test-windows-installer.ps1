@@ -13,7 +13,8 @@ $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $originalProcessPath = $env:Path
 
 function Invoke-InstallerChild {
-    $process = Start-Process -FilePath powershell.exe -ArgumentList @(
+    $shell = if ($IsWindows) { 'powershell.exe' } else { (Get-Command pwsh).Source }
+    $process = Start-Process -FilePath $shell -ArgumentList @(
         '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $installer + '"')
     ) -Wait -PassThru
     return $process.ExitCode
@@ -30,6 +31,7 @@ try {
     $env:CODEX_RP_INSTALL_DIR = $installDir
     $env:CODEX_RP_BIN_DIR = $binDir
     $env:CODEX_RP_NO_LAUNCH = '1'
+    $env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC = '30'
 
     & $installer
     if (-not (Test-Path -LiteralPath (Join-Path $installDir 'platform\windows\codex-rp.ps1'))) { throw 'Windows source was not installed.' }
@@ -38,6 +40,9 @@ try {
     $launcherText = [System.IO.File]::ReadAllText((Join-Path $binDir 'codex-rp.cmd'))
     if ($launcherText.Contains($installDir)) { throw 'ASCII launcher unexpectedly embeds an absolute user path.' }
     if (-not $launcherText.Contains('%~dp0codex-rp-launch.ps1')) { throw 'ASCII launcher does not use its relative helper.' }
+    $installerText = [System.IO.File]::ReadAllText($installer)
+    if (-not $installerText.Contains('-TimeoutSec $downloadTimeoutSec')) { throw 'Installer download timeout was not configured.' }
+    if (-not $installerText.Contains('不会读取或改写 DPAPI 凭据')) { throw 'Installer update boundary was not explained.' }
 
     [System.IO.File]::WriteAllText((Join-Path $installDir 'old-marker'), 'old')
     & $installer
@@ -76,5 +81,6 @@ finally {
     Remove-Item Env:CODEX_RP_INSTALL_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:CODEX_RP_BIN_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:CODEX_RP_NO_LAUNCH -ErrorAction SilentlyContinue
+    Remove-Item Env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $testDir) { Remove-Item -LiteralPath $testDir -Recurse -Force }
 }

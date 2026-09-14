@@ -40,6 +40,9 @@ jobs:
       - name: Test API key validation
         shell: bash
         run: bash tests/test-api-key-validation.sh
+      - name: Test managed state parser
+        shell: bash
+        run: bash tests/test-state-parser.sh
       - name: Test systemd unit generation
         shell: bash
         run: bash tests/test-systemd-units.sh

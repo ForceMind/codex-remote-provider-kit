@@ -23,14 +23,18 @@ usage() {
 命令：
   menu          打开中文管理面板（默认）
   install       安装/配置第三方 provider
-  status        检查配置、Keychain、Codex 与 ChatGPT 桌面应用
+  status        分层只读检查配置、Keychain、Codex 与 ChatGPT 桌面应用（支持 --json/--full）
+  doctor        与 status 相同的诊断入口（支持 --json/--full）
   test          执行一次最小化的第三方 Codex 真实调用
+  reconfigure   事务式更新 Base URL、模型、推理强度，并可选轮换 Keychain 密钥
   official      恢复安装前的官方默认模型配置
   third-party   重新启用第三方模型配置
   rotate-key    更新 macOS Keychain 中的第三方密钥
   shortcut      安装/刷新 Finder、Spotlight 和 Dock 可用的 .app 快捷入口
   restart-app   明确重启 ChatGPT 桌面应用以加载新配置
-  rollback      移除本工具配置并删除 Keychain 密钥
+  rollback      移除本工具配置并删除 Keychain 密钥（支持 --dry-run）
+  uninstall     rollback 的兼容别名
+  update        查看、检查、应用更新或切换 stable/development 通道
   version       显示套件版本
 
 安装选项：
@@ -40,6 +44,7 @@ usage() {
   --reasoning EFFORT   none/minimal/low/medium/high/xhigh（默认：high）
   --codex-bin PATH     指定 Codex CLI
 
+Provider ID 只可在首次 install 时指定；reconfigure 保持既有 ID，避免与其他工具产生所有权冲突。
 脚本只修改用户级 ~/.codex 配置、本用户的 macOS Keychain 和套件管理的
 快捷启动入口，不修改 ChatGPT 登录、workspace、Remote 配对或会话历史。
 切换后请重启桌面应用并新建会话。
@@ -494,7 +499,9 @@ ensure_launcher() {
       printf '#!/usr/bin/env bash\n'
       printf '%s\n' "$launcher_marker"
       printf 'kit_dir=%q\n' "$repo_dir"
-      printf 'if [[ -x "$kit_dir/auto-update.sh" ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
+      printf 'case "${1-}" in help|-h|--help|version|-V|--version|status|doctor|rollback|uninstall) exec "$kit_dir/platform/macos/codex-rp.sh" "$@" ;; esac\n'
+      printf 'if [[ ${1-} == --no-update ]]; then shift; export CODEX_RP_SKIP_AUTO_UPDATE=1; fi\n'
+      printf 'if [[ -x "$kit_dir/auto-update.sh" && ${CODEX_RP_SKIP_AUTO_UPDATE:-0} != 1 ]]; then "$kit_dir/auto-update.sh" || exit $?; fi\n'
       printf 'exec "$kit_dir/platform/macos/codex-rp.sh" "$@"\n'
     } > "$temp_file"
     chmod 755 "$temp_file"
@@ -561,7 +568,7 @@ ensure_app_launcher() {
   resources_dir="$temp_bundle/Contents/Resources"
   mkdir -p "$(dirname "$executable_file")" "$resources_dir"
 
-  cat > "$temp_bundle/Contents/Info.plist" <<'EOF'
+  cat > "$temp_bundle/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -579,9 +586,9 @@ ensure_app_launcher() {
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>$kit_version</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$kit_version</string>
   <key>LSMinimumSystemVersion</key>
   <string>10.15</string>
 </dict>
@@ -625,9 +632,22 @@ EOF
   touch "$app_launcher"
 }
 
+warn_launcher_path() {
+  local launcher_dir
+  launcher_dir=$(dirname "$launcher_file")
+  case ":${PATH:-}:" in
+    *":$launcher_dir:"*) ;;
+    *)
+      printf '提示：%s 不在当前 PATH 中；请将其加入 shell 配置后重新打开终端，或继续使用 %s。\n' \
+        "$launcher_dir" "$launcher_file" >&2
+      ;;
+  esac
+}
+
 install_shortcuts() {
   ensure_launcher
   ensure_app_launcher
+  warn_launcher_path
   printf '快捷启动已安装：%s\n' "$app_launcher"
   printf '可从 Finder/Spotlight 打开，或拖到 Dock；终端命令仍为 codex-rp。\n'
 }
@@ -661,7 +681,11 @@ ensure_codex() {
   [[ ${CODEX_RP_SKIP_CODEX_INSTALL:-0} != 1 ]] || die '测试模式下未找到 Codex CLI'
   command -v curl >/dev/null 2>&1 || die '缺少 curl，无法安装 Codex'
   printf '未检测到 Codex CLI，正在运行 OpenAI 官方 macOS 安装器……\n'
-  curl -fsSL https://chatgpt.com/codex/install.sh | sh
+  curl --fail --silent --show-error --location \
+    --connect-timeout "${CODEX_RP_DOWNLOAD_CONNECT_TIMEOUT:-10}" \
+    --max-time "${CODEX_RP_DOWNLOAD_MAX_TIME:-60}" \
+    --retry "${CODEX_RP_DOWNLOAD_RETRIES:-2}" --retry-delay 1 \
+    https://chatgpt.com/codex/install.sh | sh
   hash -r
   codex_bin=$(find_codex '') || die 'Codex 安装完成，但仍未找到 codex 命令'
 }
@@ -922,6 +946,82 @@ EOF
   printf '也可从 Finder/Spotlight 打开：%s\n' "$app_launcher"
 }
 
+reconfigure_provider() {
+  local new_base_url='' new_model='' new_reasoning='' rotate='no' api_key=''
+  local mode source_config new_config old_base_url old_model old_reasoning
+  local old_config_temp profile_temp profile_backup
+  load_state
+  old_base_url=$base_url; old_model=$model; old_reasoning=$reasoning
+  while (($#)); do
+    case "$1" in
+      --base-url) new_base_url=${2:?}; shift 2 ;;
+      --model) new_model=${2:?}; shift 2 ;;
+      --reasoning) new_reasoning=${2:?}; shift 2 ;;
+      --rotate-key) rotate='yes'; shift ;;
+      --provider-id) die 'reconfigure 不支持修改 Provider ID；为避免所有权冲突，请保留既有 ID' ;;
+      -h|--help) usage; return 0 ;;
+      *) die "未知 reconfigure 参数：$1" ;;
+    esac
+  done
+  new_base_url=${new_base_url:-$base_url}; new_base_url=${new_base_url%/}
+  new_model=${new_model:-$model}; new_reasoning=${new_reasoning:-$reasoning}
+  validate_base_url "$new_base_url" || die 'Base URL 必须是非示例 HTTPS 地址，且不能包含凭据、查询或片段'
+  validate_model "$new_model" || die '模型名称无效'
+  validate_reasoning "$new_reasoning" || die '推理强度无效'
+  current_config_mode; mode=$CODEX_RP_CONFIG_MODE
+  [[ "$mode" != external ]] || die '检测到 CC Switch 或其他工具选择了外部 provider；已拒绝覆盖'
+  require_managed_provider_block
+  if [[ "$rotate" == yes ]]; then
+    [[ -t 0 ]] || die '轮换密钥必须在交互式终端运行'
+    read -rsp '请输入新的第三方 API 密钥（不会回显）：' api_key
+    printf '\n'
+    validate_api_key "$api_key" || die 'API 密钥包含不支持的字符'
+  fi
+  source_config=$(make_temp); new_config=$(make_temp); old_config_temp=$(make_temp)
+  profile_temp=$(make_temp); profile_backup=$(make_temp)
+  cp -p "$config_file" "$source_config"
+  cp -p "$config_file" "$old_config_temp"
+  cp -p "$profile_file" "$profile_backup"
+  base_url=$new_base_url; model=$new_model; reasoning=$new_reasoning
+  if ! {
+    strip_managed_block "$source_config" "$new_config" "$provider_id"
+    printf '\n' >> "$new_config"
+    render_managed_provider_block >> "$new_config"
+    if [[ "$mode" == third-party ]]; then
+      set_top_level_string_portable "$new_config" model_provider "$provider_id"
+      set_top_level_string_portable "$new_config" model "$model"
+      set_top_level_string_portable "$new_config" model_reasoning_effort "$reasoning"
+    fi
+    chmod 600 "$new_config"
+    cmp -s "$config_file" "$source_config" || die '检测到配置在 reconfigure 期间被其他工具修改；已取消写入'
+    mv -f "$new_config" "$config_file"
+    cat > "$profile_temp" <<EOF
+model = "$model"
+model_provider = "$provider_id"
+model_reasoning_effort = "$reasoning"
+EOF
+    chmod 600 "$profile_temp"
+    install -m 600 "$profile_temp" "$profile_file"
+    state_put "$active_dir" base_url "$base_url"
+    state_put "$active_dir" model "$model"
+    state_put "$active_dir" reasoning "$reasoning"
+    if [[ "$rotate" == yes ]]; then keychain_store "$keychain_account" "$keychain_service" "$api_key"; fi
+  }; then
+    cp -p "$old_config_temp" "$config_file" 2>/dev/null || true
+    cp -p "$profile_backup" "$profile_file" 2>/dev/null || true
+    state_put "$active_dir" base_url "$old_base_url" 2>/dev/null || true
+    state_put "$active_dir" model "$old_model" 2>/dev/null || true
+    state_put "$active_dir" reasoning "$old_reasoning" 2>/dev/null || true
+    base_url=$old_base_url; model=$old_model; reasoning=$old_reasoning
+    rm -f "$source_config" "$new_config" "$old_config_temp" "$profile_temp" "$profile_backup"
+    die 'reconfigure 未完成；配置和活动状态已恢复。若 Keychain 写入已被系统接受，请重新执行 rotate-key 并完成验证'
+  fi
+  rm -f "$source_config" "$new_config" "$old_config_temp" "$profile_temp" "$profile_backup"
+  api_key=''
+  printf '已事务更新第三方配置：%s / %s。当前模式保持 %s；未重启 ChatGPT。\n' "$provider_id" "$model" "$mode"
+  printf '请明确运行 codex-rp restart-app，再执行 codex-rp test。\n'
+}
+
 use_third_party() {
   local mode
   load_state
@@ -971,57 +1071,57 @@ use_official() {
 }
 
 show_status() {
-  local mode keychain_status app_status login_status provider_config_status
+  local json='no' full='no' mode keychain_status app_status login_status provider_config_status
+  local codex_status='missing' login_state='unconfirmed' local_ok='yes'
+  while (($#)); do
+    case "$1" in
+      --json) json='yes'; shift ;;
+      --full) full='yes'; shift ;;
+      *) die "status 不接受参数：$1" ;;
+    esac
+  done
   load_state
   current_config_mode; mode=$CODEX_RP_CONFIG_MODE
-  printf '[套件]\n版本：%s\n' "$kit_version"
-  printf '[平台]\nmacOS\n'
-  printf '[配置]\n'
-  case "$mode" in
-    third-party) printf '当前模式：third-party\n' ;;
-    official) printf '当前模式：official\n' ;;
-    external)
-      printf '当前模式：external/unmanaged\n'
-      die '检测到 CC Switch 或其他工具选择了外部 provider；本工具不会覆盖该配置'
-      ;;
-  esac
-  printf '用户配置：%s\n' "$config_file"
   provider_config_status='缺失或已被外部修改'
   managed_provider_block_matches && provider_config_status='完整'
-  printf '受管 provider 配置：%s\n' "$provider_config_status"
-  [[ "$provider_config_status" == '完整' ]] || return 1
-
+  [[ "$provider_config_status" == '完整' ]] || local_ok='no'
   keychain_status='缺失'
   "$security_bin" find-generic-password -a "$keychain_account" \
-    -s "$keychain_service" >/dev/null 2>&1 \
-    && keychain_status='存在'
-  printf '[凭据]\nKeychain 条目：%s\n' "$keychain_status"
-  [[ "$keychain_status" == '存在' ]] || return 1
-
-  printf '[Codex]\n'
-  "$codex_bin" --version
+    -s "$keychain_service" >/dev/null 2>&1 && keychain_status='存在'
+  [[ "$keychain_status" == '存在' ]] || local_ok='no'
+  if [[ -x "$codex_bin" ]]; then codex_status='available'; else local_ok='no'; fi
   login_status=$({ "$codex_bin" login status 2>&1 || true; })
-  if [[ "$login_status" == *'Logged in using ChatGPT'* ]]; then
-    printf 'CLI 登录：已使用 ChatGPT 登录\n'
-  else
-    printf 'CLI 登录：未确认；请检查 ChatGPT 桌面应用是否登录正确账号/workspace\n'
-  fi
-
+  [[ "$login_status" == *'Logged in using ChatGPT'* ]] && login_state='chatgpt'
   app_status='未运行'
-  if command -v pgrep >/dev/null 2>&1 && pgrep -x ChatGPT >/dev/null 2>&1; then
-    app_status='运行中'
+  if command -v pgrep >/dev/null 2>&1 && pgrep -x ChatGPT >/dev/null 2>&1; then app_status='运行中'; fi
+  if [[ "$json" == yes ]]; then
+    printf '{"version":"%s","mode":"%s","local_checks":"%s","provider_config":"%s","keychain":"%s","codex":"%s","login":"%s","chatgpt_app":"%s"}\n' \
+      "$kit_version" "$mode" "$local_ok" "$provider_config_status" "$keychain_status" "$codex_status" "$login_state" "$app_status"
+  else
+    printf '[套件]\n版本：%s\n[平台]\nmacOS\n[本地只读一致检查]\n结果：%s\n' "$kit_version" "$local_ok"
+    printf '[配置]\n当前模式：%s\n用户配置：%s\n受管 provider 配置：%s\n' "$mode" "$config_file" "$provider_config_status"
+    printf '[凭据]\nKeychain 条目：%s\n[Codex]\nCLI：%s\nCLI 登录：%s\n[Remote 宿主]\nChatGPT 桌面应用：%s\n' \
+      "$keychain_status" "$codex_status" "$login_state" "$app_status"
+    [[ "$mode" != external ]] || printf '诊断：检测到 external/unmanaged；所有写操作将拒绝覆盖。\n'
   fi
-  printf '[Remote 宿主]\nChatGPT 桌面应用：%s\n' "$app_status"
+  [[ "$local_ok" == yes ]] || return 1
+  if [[ "$full" == yes ]]; then
+    [[ "$mode" == third-party ]] || { [[ "$json" == yes ]] || printf '完整网络检查：已跳过（仅 third-party 模式执行，未切换 provider）。\n'; return 0; }
+    [[ "$json" == yes ]] && die '--json 不与 --full 组合；完整检查会输出 Codex 诊断'
+    run_test --skip-status
+  fi
 }
 
 run_test() {
-  local mode last_message
+  local mode last_message skip_status='no'
+  if [[ ${1-} == --skip-status ]]; then skip_status='yes'; shift; fi
+  (($# == 0)) || die 'test 不接受参数'
   load_state
   current_config_mode; mode=$CODEX_RP_CONFIG_MODE
   [[ "$mode" == 'third-party' ]] \
     || die '真实测试只在本工具管理的 third-party 模式运行；外部 provider 不会被覆盖'
   require_managed_provider_block
-  show_status
+  [[ "$skip_status" == yes ]] || show_status
   last_message=$(make_temp)
   trap 'rm -f "$last_message"' EXIT
   printf '正在执行最小化第三方 Codex 回合，可能产生少量用量……\n'
@@ -1068,12 +1168,26 @@ restart_app() {
       && die 'ChatGPT 在 15 秒内未退出；当前应用未被强制终止，请手动重启'
   fi
   open -a ChatGPT
-  printf 'ChatGPT 已重新打开；请等待 Remote 恢复后新建会话。\n'
+  if command -v pgrep >/dev/null 2>&1; then
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      pgrep -x ChatGPT >/dev/null 2>&1 && break
+      sleep 1
+    done
+    pgrep -x ChatGPT >/dev/null 2>&1 \
+      || die '已请求启动 ChatGPT，但 10 秒内未检测到进程；请手动打开应用后再验证 Remote'
+  fi
+  printf 'ChatGPT 已重新打开并检测到进程；请等待 Remote 恢复后新建会话。\n'
 }
 
 rollback_all() {
-  local confirmation config_existed profile_existed launcher_existed
+  local dry_run='no' confirmation config_existed profile_existed launcher_existed
   local app_launcher_existed timestamp target mode
+  while (($#)); do
+    case "$1" in
+      --dry-run) dry_run='yes'; shift ;;
+      *) die "rollback 不接受参数：$1" ;;
+    esac
+  done
   load_state
   current_config_mode; mode=$CODEX_RP_CONFIG_MODE
   [[ "$mode" != external ]] \
@@ -1082,9 +1196,17 @@ rollback_all() {
     || die "Provider $provider_id 的配置所有权不明确；已拒绝回滚，避免删除 CC Switch 管理的同名 provider"
   managed_profile_matches \
     || die "$profile_file 已被其他工具修改；已拒绝回滚，避免覆盖外部更改"
+  if [[ "$dry_run" == yes ]]; then
+    printf '回滚预演通过：将移除受管 provider/profile/快捷入口，并尝试删除 Keychain 条目；不会修改任何内容。\n'
+    return 0
+  fi
   printf '回滚只移除本工具的配置和 Keychain 密钥，并保留其他 provider。请输入 ROLLBACK 继续：'
   read -r confirmation
   [[ "$confirmation" == ROLLBACK ]] || die '操作已取消'
+  if ! "$security_bin" delete-generic-password -a "$keychain_account" \
+      -s "$keychain_service" >/dev/null 2>&1; then
+    die 'Keychain 密钥删除失败；为避免误报，活动状态和其余配置均已保留。请解决 Keychain 权限/条目问题后重试 rollback'
+  fi
   state_get config_existed; config_existed=$CODEX_RP_STATE_VALUE
   state_get profile_existed; profile_existed=$CODEX_RP_STATE_VALUE
   launcher_existed='no'
@@ -1123,8 +1245,6 @@ rollback_all() {
   elif app_launcher_is_managed; then
     rm -rf "$app_launcher"
   fi
-  "$security_bin" delete-generic-password -a "$keychain_account" \
-    -s "$keychain_service" >/dev/null 2>&1 || true
   mkdir -p "$audit_dir"
   timestamp=$(date +%Y%m%d-%H%M%S)
   target="$audit_dir/state-$timestamp-$$"
@@ -1140,9 +1260,9 @@ show_menu() {
     printf '\nCodex 远程模型服务工具（macOS）v%s\n' "$kit_version"
     printf '重要：使用 CC Switch 时必须先切到 OpenAI 官方配置；检测到外部 provider 将拒绝写入。\n'
     printf '1) 安装第三方 provider\n2) 查看状态\n3) 完整测试\n'
-    printf '4) 切换第三方\n5) 切换官方\n6) 轮换密钥\n'
-    printf '7) 重启 ChatGPT 应用\n8) 完整回滚\n'
-    printf '9) 安装/刷新 Mac 快捷启动\n0) 退出\n请选择：'
+    printf '4) 切换第三方\n5) 切换官方\n6) 重新配置第三方 API\n'
+    printf '7) 轮换密钥\n8) 重启 ChatGPT 应用\n9) 完整回滚\n'
+    printf '10) 安装/刷新 Mac 快捷启动\n11) 查看帮助\n0) 退出\n请选择：'
     read -r choice || return 0
     case "$choice" in
       1) run_menu_command install ;;
@@ -1150,10 +1270,12 @@ show_menu() {
       3) run_menu_command test ;;
       4) run_menu_command third-party ;;
       5) run_menu_command official ;;
-      6) run_menu_command rotate-key ;;
-      7) run_menu_command restart-app ;;
-      8) run_menu_command rollback ;;
-      9) run_menu_command shortcut ;;
+      6) run_menu_command reconfigure ;;
+      7) run_menu_command rotate-key ;;
+      8) run_menu_command restart-app ;;
+      9) run_menu_command rollback ;;
+      10) run_menu_command shortcut ;;
+      11) usage ;;
       0) return 0 ;;
       *) printf '无效选项。\n' >&2 ;;
     esac
@@ -1174,14 +1296,17 @@ if (($#)); then shift; fi
 case "$command_name" in
   menu) show_menu "$@" ;;
   install) install_provider "$@" ;;
-  status) (($# == 0)) || die 'status 不接受参数'; show_status ;;
-  test) (($# == 0)) || die 'test 不接受参数'; run_test ;;
+  status) show_status "$@" ;;
+  doctor) show_status "$@" ;;
+  test) run_test "$@" ;;
+  reconfigure) reconfigure_provider "$@" ;;
   official) (($# == 0)) || die 'official 不接受参数'; use_official ;;
   third-party) (($# == 0)) || die 'third-party 不接受参数'; use_third_party ;;
   rotate-key) (($# == 0)) || die 'rotate-key 不接受参数'; rotate_key ;;
   shortcut) (($# == 0)) || die 'shortcut 不接受参数'; install_shortcuts ;;
   restart-app) (($# == 0)) || die 'restart-app 不接受参数'; restart_app ;;
-  rollback) (($# == 0)) || die 'rollback 不接受参数'; rollback_all ;;
+  rollback|uninstall) rollback_all "$@" ;;
+  update) "$repo_dir/auto-update.sh" "$@" ;;
   version|-V|--version) (($# == 0)) || die 'version 不接受参数'; printf 'codex-remote-provider-kit %s\n' "$kit_version" ;;
   help|-h|--help) usage ;;
   *) usage >&2; die "未知命令：$command_name" ;;

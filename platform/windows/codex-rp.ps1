@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('menu', 'install', 'status', 'test', 'official', 'third-party', 'rotate-key', 'restart-app', 'rollback', 'version', '-V', '--version', 'help')]
+    [ValidateSet('menu', 'install', 'reconfigure', 'status', 'doctor', 'test', 'official', 'third-party', 'rotate-key', 'restart-app', 'rollback', 'uninstall', 'update', 'version', '-V', '--version', 'help')]
     [string] $Command = 'menu',
 
     [string] $BaseUrl = '',
@@ -9,11 +9,20 @@ param(
     [string] $ProviderId = 'third_party',
     [ValidateSet('none', 'minimal', 'low', 'medium', 'high', 'xhigh')]
     [string] $Reasoning = 'high',
-    [string] $CodexBin = ''
+    [string] $CodexBin = '',
+    [switch] $RotateKey,
+    [switch] $Json,
+    [switch] $DryRun,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]] $CommandArguments
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
+$script:ProvidedParameters = @{}
+foreach ($parameterName in $PSBoundParameters.Keys) {
+    $script:ProvidedParameters[$parameterName] = $true
+}
 
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:RepoDir = (Resolve-Path (Join-Path $script:ScriptDir '..\..')).Path
@@ -47,18 +56,24 @@ function Show-Usage {
 命令：
   menu          打开中文管理面板（默认）
   install       安装/配置第三方 provider
+  reconfigure   更新已安装第三方配置；增加 -RotateKey 可同时轮换密钥
   status        检查配置、DPAPI 凭据、Codex 与 ChatGPT 应用
+  doctor        与 status 相同，外部配置时继续输出诊断
   test          执行一次最小化第三方 Codex 真实调用
   official      恢复安装前的官方默认模型配置
   third-party   重新启用第三方模型配置
   rotate-key    更新当前 Windows 用户的 DPAPI 加密密钥
   restart-app   明确重启 ChatGPT 桌面应用
-  rollback      恢复安装前配置并删除加密密钥
+  rollback      选择性移除本工具配置并删除加密密钥（支持 --dry-run）
+  uninstall     rollback 的兼容别名
   version       显示套件版本
+  update        Windows 不自动更新；显示安全更新指引
 
 示例：
   codex-rp install -BaseUrl https://provider.example/v1 -Model gpt-5.6-sol
-  codex-rp status
+  codex-rp reconfigure -Model gpt-5.6-sol -Reasoning medium
+  codex-rp status -Json
+  codex-rp rollback --dry-run
 
 脚本只修改 %USERPROFILE%\.codex 和当前用户的 DPAPI 凭据，不修改 ChatGPT
 登录、workspace、Remote 配对或会话历史。切换后请重启桌面应用并新建会话。
@@ -267,7 +282,8 @@ function Ensure-Codex([string] $Override) {
     if ($resolved) { return $resolved }
     if ($env:CODEX_RP_SKIP_CODEX_INSTALL -eq '1') { Fail '测试模式下未找到 Codex CLI。' }
     Write-Host '未检测到 Codex CLI，正在运行 OpenAI 官方 Windows 安装器……'
-    $installer = Invoke-RestMethod 'https://chatgpt.com/codex/install.ps1'
+    $downloadTimeoutSec = if ($env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC) { [int] $env:CODEX_RP_DOWNLOAD_TIMEOUT_SEC } else { 60 }
+    $installer = Invoke-RestMethod -UseBasicParsing -Uri 'https://chatgpt.com/codex/install.ps1' -TimeoutSec $downloadTimeoutSec
     Invoke-Expression $installer
     $resolved = Resolve-Codex ''
     if (-not $resolved) { Fail 'Codex 安装完成，但仍未找到 codex 命令。' }
@@ -318,6 +334,54 @@ function Test-OfficialDefaults {
     return $true
 }
 
+function Test-ManagedProviderBlock($State) {
+    $begin = '# BEGIN codex-remote-provider-kit:' + $State.provider_id
+    $end = '# END codex-remote-provider-kit:' + $State.provider_id
+    $lines = @(Read-ConfigLines $script:ConfigFile)
+    $beginIndex = [Array]::IndexOf($lines, $begin)
+    $endIndex = [Array]::IndexOf($lines, $end)
+    if ($beginIndex -lt 0 -or $endIndex -le $beginIndex) { return $false }
+    $block = $lines[$beginIndex..$endIndex] -join "`n"
+    return $block.Contains('[model_providers.' + $State.provider_id + ']') -and
+        $block.Contains('base_url = "' + (ConvertTo-TomlString $State.base_url) + '"') -and
+        $block.Contains('wire_api = "responses"') -and
+        $block.Contains('[model_providers.' + $State.provider_id + '.auth]')
+}
+
+function Test-ManagedProfile($State) {
+    $profileFile = Join-Path $script:CodexHome ($State.provider_id + '.config.toml')
+    if (-not (Test-Path -LiteralPath $profileFile -PathType Leaf)) { return $false }
+    $expected = @(
+        ('model = "' + (ConvertTo-TomlString $State.model) + '"'),
+        ('model_provider = "' + (ConvertTo-TomlString $State.provider_id) + '"'),
+        ('model_reasoning_effort = "' + (ConvertTo-TomlString $State.reasoning) + '"')
+    ) -join "`n"
+    return ([System.IO.File]::ReadAllText($profileFile).Trim() -eq $expected)
+}
+
+function Get-ConfigurationMode($State) {
+    $provider = Get-TopLevelString $script:ConfigFile 'model_provider'
+    $modelValue = Get-TopLevelString $script:ConfigFile 'model'
+    $reasoningValue = Get-TopLevelString $script:ConfigFile 'model_reasoning_effort'
+    if ($provider -eq $State.provider_id -and $modelValue -eq $State.model -and $reasoningValue -eq $State.reasoning) {
+        return 'third-party'
+    }
+    if (Test-OfficialDefaults) { return 'official' }
+    return 'external'
+}
+
+function Assert-ManagedWriteAllowed($State) {
+    if ((Get-ConfigurationMode $State) -eq 'external') {
+        Fail '检测到外部 provider 或未受管默认配置；已拒绝覆盖。请先在外部工具中切换到 OpenAI 官方配置。'
+    }
+    if (-not (Test-ManagedProviderBlock $State)) {
+        Fail "Provider $($State.provider_id) 的配置所有权不明确；已拒绝覆盖。"
+    }
+    if (-not (Test-ManagedProfile $State)) {
+        Fail "$($State.provider_id).config.toml 已被外部修改；已拒绝覆盖。"
+    }
+}
+
 function Install-Provider {
     $staging = $null
     $preserveStaging = $false
@@ -340,6 +404,13 @@ function Install-Provider {
         [System.IO.Directory]::CreateDirectory($script:AuditDir) | Out-Null
         $configExisted = Test-Path -LiteralPath $script:ConfigFile -PathType Leaf
         $profileExisted = Test-Path -LiteralPath $profileFile -PathType Leaf
+        $selectedProvider = Get-TopLevelString $script:ConfigFile 'model_provider'
+        if ($selectedProvider -and $selectedProvider -ne 'openai') {
+            Fail '检测到外部 provider；首次安装不会覆盖现有选择。请先在外部工具中切换到 OpenAI 官方配置。'
+        }
+        if ($profileExisted) {
+            Fail "$ProviderId.config.toml 已存在且不属于本套件；首次安装拒绝覆盖。"
+        }
         if ($configExisted) { Copy-Item -LiteralPath $script:ConfigFile -Destination (Join-Path $backupDir 'config.toml') }
         if ($profileExisted) { Copy-Item -LiteralPath $profileFile -Destination (Join-Path $backupDir 'profile.config.toml') }
 
@@ -360,7 +431,12 @@ function Install-Provider {
         Set-TopLevelString $temporaryConfig 'model' $Model
         Set-TopLevelString $temporaryConfig 'model_reasoning_effort' $Reasoning
 
-        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $powershellExe = if ($env:CODEX_RP_TEST_MODE -eq '1' -and (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        (Get-Command pwsh).Source
+    }
+    else {
+        Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    }
         $managed = @(
             '',
             ('# BEGIN codex-remote-provider-kit:' + $ProviderId),
@@ -443,6 +519,13 @@ function Install-Provider {
 
 function Use-ThirdParty {
     $state = Load-State
+    $mode = Get-ConfigurationMode $state
+    if ($mode -eq 'external') { Assert-ManagedWriteAllowed $state }
+    if ($mode -eq 'third-party') {
+        Write-Host '当前已经是本工具管理的第三方 provider。'
+        return
+    }
+    Assert-ManagedWriteAllowed $state
     Update-DefaultConfig @{
         model_provider = 'model_provider = "' + (ConvertTo-TomlString $state.provider_id) + '"'
         model = 'model = "' + (ConvertTo-TomlString $state.model) + '"'
@@ -454,6 +537,13 @@ function Use-ThirdParty {
 
 function Use-Official {
     $state = Load-State
+    $mode = Get-ConfigurationMode $state
+    if ($mode -eq 'external') { Assert-ManagedWriteAllowed $state }
+    if ($mode -eq 'official') {
+        Write-Host '当前已经是 OpenAI 官方配置；未修改外部配置。'
+        return
+    }
+    Assert-ManagedWriteAllowed $state
     $confirmation = Read-Confirmation '只恢复安装前官方默认配置，可能使用官方额度。是否继续？[y/N]'
     if ($confirmation -notmatch '^[yY]$') {
         Write-Host '操作已取消。'
@@ -466,31 +556,55 @@ function Use-Official {
 
 function Show-Status {
     $state = Load-State
+    $mode = Get-ConfigurationMode $state
     $provider = Get-TopLevelString $script:ConfigFile 'model_provider'
     $modelValue = Get-TopLevelString $script:ConfigFile 'model'
     $reasoningValue = Get-TopLevelString $script:ConfigFile 'model_reasoning_effort'
+    $providerConfigStatus = if (Test-ManagedProviderBlock $state) { '完整' } else { '缺失或已被外部修改' }
+    $profileStatus = if (Test-ManagedProfile $state) { '完整' } else { '缺失或已被外部修改' }
+    if ($Json) {
+        [pscustomobject]@{
+            schema_version = 1
+            kit_version = $script:KitVersion
+            platform = 'windows'
+            mode = $mode
+            ok = ($mode -ne 'external' -and $providerConfigStatus -eq '完整' -and $profileStatus -eq '完整')
+            checks = @(
+                [pscustomobject]@{ id = 'config.mode'; status = $(if ($mode -eq 'external') { 'BLOCKED' } else { 'PASS' }) }
+                [pscustomobject]@{ id = 'config.provider'; status = $(if ($providerConfigStatus -eq '完整') { 'PASS' } else { 'BLOCKED' }) }
+                [pscustomobject]@{ id = 'config.profile'; status = $(if ($profileStatus -eq '完整') { 'PASS' } else { 'BLOCKED' }) }
+                [pscustomobject]@{ id = 'credential.presence'; status = $(if (Test-Path -LiteralPath (Join-Path $script:ActiveDir 'provider.key') -PathType Leaf) { 'PASS' } else { 'FAIL' }) }
+                [pscustomobject]@{ id = 'remote.host_readiness'; status = 'UNKNOWN' }
+            )
+        } | ConvertTo-Json -Compress -Depth 4
+        return
+    }
     Write-Host '[套件]'
     Write-Host "版本：$($script:KitVersion)"
     Write-Host '[平台]'
     Write-Host 'Windows'
     Write-Host '[配置]'
-    if ($provider -eq $state.provider_id) {
-        Write-Host '当前模式：third-party'
-        if ($modelValue -ne $state.model) { Fail "模型不匹配：$modelValue" }
-        if ($reasoningValue -ne $state.reasoning) { Fail "推理强度不匹配：$reasoningValue" }
+    Write-Host "当前模式：$mode"
+    if ($mode -eq 'third-party') {
+        Write-Host "第三方配置：$($state.provider_id) / $modelValue / $reasoningValue"
     }
-    elseif (Test-OfficialDefaults) { Write-Host '当前模式：official' }
-    else {
-        Write-Host '当前模式：unmanaged'
-        Fail '三项顶层默认配置既不匹配第三方模式，也不匹配安装前官方模式。'
+    elseif ($mode -eq 'external') {
+        Write-Warning '诊断：检测到 external/unmanaged；所有写操作将拒绝覆盖。'
     }
+    Write-Host "Provider 配置：$providerConfigStatus"
+    Write-Host "Profile 配置：$profileStatus"
     Write-Host "用户配置：$($script:ConfigFile)"
 
     $secretFile = Join-Path $script:ActiveDir 'provider.key'
     if (-not (Test-Path -LiteralPath $secretFile -PathType Leaf)) { Fail 'DPAPI 凭据文件缺失。' }
     $helperFile = Join-Path $script:ActiveDir 'get-provider-token.ps1'
     if (-not (Test-Path -LiteralPath $helperFile -PathType Leaf)) { Fail 'DPAPI 解密助手缺失。' }
-    $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $powershellExe = if ($env:CODEX_RP_TEST_MODE -eq '1' -and (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        (Get-Command pwsh).Source
+    }
+    else {
+        Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    }
     $decrypted = (& $powershellExe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helperFile $secretFile 2>$null | Out-String).Trim()
     $decryptExit = $LASTEXITCODE
     if ($decryptExit -ne 0 -or -not (Test-ApiKey $decrypted)) {
@@ -516,6 +630,7 @@ function Show-Status {
     Write-Host '[Remote 宿主]'
     if (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue) { Write-Host 'ChatGPT 桌面应用：运行中' }
     else { Write-Host 'ChatGPT 桌面应用：未运行' }
+    Write-Host 'Remote 就绪状态：UNKNOWN（进程存在不能证明手机 Remote 端到端可用）'
 }
 
 function Invoke-ProviderTest {
@@ -533,8 +648,100 @@ function Invoke-ProviderTest {
     finally { if (Test-Path -LiteralPath $lastMessage) { Remove-Item -LiteralPath $lastMessage -Force } }
 }
 
+function Reconfigure-Provider {
+    $state = Load-State
+    if ($script:ProvidedParameters.ContainsKey('ProviderId') -and $ProviderId -ne $state.provider_id) {
+        Fail 'reconfigure 不支持修改 Provider ID；为避免所有权冲突，请保留既有 ID。'
+    }
+    $newBaseUrl = if ($script:ProvidedParameters.ContainsKey('BaseUrl')) { $BaseUrl.TrimEnd('/') } else { [string] $state.base_url }
+    $newModel = if ($script:ProvidedParameters.ContainsKey('Model')) { $Model } else { [string] $state.model }
+    $newReasoning = if ($script:ProvidedParameters.ContainsKey('Reasoning')) { $Reasoning } else { [string] $state.reasoning }
+    if (-not (Test-BaseUrl $newBaseUrl)) { Fail 'Base URL 必须是非示例 HTTPS 地址，且不能包含凭据、查询或片段。' }
+    if (-not (Test-ModelName $newModel)) { Fail '模型名称无效。' }
+    $mode = Get-ConfigurationMode $state
+    Assert-ManagedWriteAllowed $state
+
+    $profileFile = Join-Path $script:CodexHome ($state.provider_id + '.config.toml')
+    $oldConfig = @(Read-ConfigLines $script:ConfigFile)
+    $oldProfile = @(Read-ConfigLines $profileFile)
+    $oldState = [System.IO.File]::ReadAllText((Join-Path $script:ActiveDir 'state.json'), $script:Utf8NoBom)
+    $newState = @{
+        provider_id = $state.provider_id
+        model = $newModel
+        reasoning = $newReasoning
+        base_url = $newBaseUrl
+        codex_bin = $state.codex_bin
+        config_existed = [bool] $state.config_existed
+        profile_existed = [bool] $state.profile_existed
+    }
+    $temporaryConfig = Join-Path $script:ActiveDir ('.config-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $temporaryProfile = Join-Path $script:ActiveDir ('.profile-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $temporarySecret = Join-Path $script:ActiveDir ('.provider-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $newSecret = $null
+    try {
+        $newConfig = @(Remove-ManagedBlock $oldConfig $state.provider_id)
+        Write-AtomicLines $temporaryConfig $newConfig
+        $powershellExe = if ($env:CODEX_RP_TEST_MODE -eq '1' -and (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        (Get-Command pwsh).Source
+    }
+    else {
+        Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    }
+        $secretFile = Join-Path $script:ActiveDir 'provider.key'
+        $helperFile = Join-Path $script:ActiveDir 'get-provider-token.ps1'
+        $managed = @(
+            '',
+            ('# BEGIN codex-remote-provider-kit:' + $state.provider_id),
+            ('[model_providers.' + $state.provider_id + ']'),
+            ('name = "' + (ConvertTo-TomlString $state.provider_id) + '"'),
+            ('base_url = "' + (ConvertTo-TomlString $newBaseUrl) + '"'),
+            'wire_api = "responses"',
+            '',
+            ('[model_providers.' + $state.provider_id + '.auth]'),
+            ('command = "' + (ConvertTo-TomlString $powershellExe) + '"'),
+            ('args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "' + (ConvertTo-TomlString $helperFile) + '", "' + (ConvertTo-TomlString $secretFile) + '"]'),
+            ('# END codex-remote-provider-kit:' + $state.provider_id)
+        )
+        Write-AtomicLines $temporaryConfig (@(Read-ConfigLines $temporaryConfig) + $managed)
+        if ($mode -eq 'third-party') {
+            Set-TopLevelString $temporaryConfig 'model_provider' $state.provider_id
+            Set-TopLevelString $temporaryConfig 'model' $newModel
+            Set-TopLevelString $temporaryConfig 'model_reasoning_effort' $newReasoning
+        }
+        Write-AtomicLines $temporaryProfile @(
+            ('model = "' + (ConvertTo-TomlString $newModel) + '"'),
+            ('model_provider = "' + (ConvertTo-TomlString $state.provider_id) + '"'),
+            ('model_reasoning_effort = "' + (ConvertTo-TomlString $newReasoning) + '"')
+        )
+        if ($RotateKey) {
+            $newSecret = Read-ProviderSecret
+            Write-DpapiSecret $newSecret $temporarySecret
+        }
+        Write-AtomicLines $script:ConfigFile @(Read-ConfigLines $temporaryConfig)
+        Write-AtomicLines $profileFile @(Read-ConfigLines $temporaryProfile)
+        Save-State $script:ActiveDir $newState
+        if ($RotateKey) { Move-Item -LiteralPath $temporarySecret -Destination $secretFile -Force }
+    }
+    catch {
+        $updateError = $_.Exception.Message
+        try { Write-AtomicLines $script:ConfigFile $oldConfig } catch { }
+        try { Write-AtomicLines $profileFile $oldProfile } catch { }
+        try { [System.IO.File]::WriteAllText((Join-Path $script:ActiveDir 'state.json'), $oldState, $script:Utf8NoBom) } catch { }
+        Fail "reconfigure 未完成；配置和活动状态已恢复：$updateError"
+    }
+    finally {
+        if ($newSecret) { $newSecret.Dispose() }
+        if (Test-Path -LiteralPath $temporaryConfig) { Remove-Item -LiteralPath $temporaryConfig -Force }
+        if (Test-Path -LiteralPath $temporaryProfile) { Remove-Item -LiteralPath $temporaryProfile -Force }
+        if (Test-Path -LiteralPath $temporarySecret) { Remove-Item -LiteralPath $temporarySecret -Force }
+    }
+    Write-Host "已事务更新第三方配置：$($state.provider_id) / $newModel。当前模式保持 $mode；未重启 ChatGPT。"
+    Write-Host '请明确运行 codex-rp restart-app，再执行 codex-rp test。'
+}
+
 function Rotate-Key {
-    $null = Load-State
+    $state = Load-State
+    Assert-ManagedWriteAllowed $state
     $secretFile = Join-Path $script:ActiveDir 'provider.key'
     $secret = Read-ProviderSecret
     $temporary = Join-Path $script:ActiveDir ('provider-' + [Guid]::NewGuid().ToString('N') + '.tmp')
@@ -561,25 +768,64 @@ function Restart-ChatGptApp {
     $manifest = Get-AppxPackageManifest $package
     $applicationId = $manifest.Package.Applications.Application.Id | Select-Object -First 1
     if (-not $applicationId) { Fail 'ChatGPT 包清单中缺少应用 ID；当前应用未被关闭。' }
-    Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Stop-Process -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline -and (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)) {
+        Start-Sleep -Seconds 1
+    }
+    if (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue) {
+        $forceConfirmation = Read-Confirmation 'ChatGPT 在 15 秒内未退出。输入 FORCE_RESTART_APP 强制终止，或直接回车取消'
+        if ($forceConfirmation -ne 'FORCE_RESTART_APP') {
+            Fail 'ChatGPT 未被强制终止；请手动关闭后重试。'
+        }
+        Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Stop-Process -Force
+    }
     $appTarget = 'shell:AppsFolder\' + $package.PackageFamilyName + '!' + $applicationId
     Start-Process -FilePath explorer.exe -ArgumentList $appTarget
-    Write-Host 'ChatGPT 已重新打开；请等待 Remote 恢复后新建会话。'
+    $startDeadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $startDeadline -and -not (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)) {
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)) {
+        Fail '已请求启动 ChatGPT，但 10 秒内未检测到进程；请手动打开应用。'
+    }
+    Write-Host 'ChatGPT 已重新打开并检测到进程；这不代表 Remote 端到端已恢复，请新建会话验证。'
 }
 
 function Rollback-All {
+    $arguments = @($CommandArguments | Where-Object { -not [string]::IsNullOrEmpty($_) })
+    $dryRunRequested = $DryRun -or ($arguments -contains '--dry-run')
+    if (@($arguments | Where-Object { $_ -ne '--dry-run' }).Count -gt 0) {
+        Fail 'rollback 只接受 --dry-run。'
+    }
     $state = Load-State
-    $confirmation = Read-Confirmation '恢复安装前配置并删除 DPAPI 密钥。输入 ROLLBACK 继续'
+    $mode = Get-ConfigurationMode $state
+    Assert-ManagedWriteAllowed $state
+    if ($dryRunRequested) {
+        Write-Host '回滚预演通过：将移除受管 provider/profile，并尝试删除 DPAPI 密钥；不会修改任何内容。'
+        return
+    }
+    $confirmation = Read-Confirmation '只移除本工具配置和 DPAPI 密钥，并保留其他 provider。输入 ROLLBACK 继续'
     if ($confirmation -ne 'ROLLBACK') { Fail '操作已取消。' }
-    $profileFile = Join-Path $script:CodexHome ($state.provider_id + '.config.toml')
-    $backupConfig = Join-Path $script:ActiveDir 'backup\config.toml'
-    $backupProfile = Join-Path $script:ActiveDir 'backup\profile.config.toml'
-    if ($state.config_existed) { Copy-Item -LiteralPath $backupConfig -Destination $script:ConfigFile -Force }
-    elseif (Test-Path -LiteralPath $script:ConfigFile) { Remove-Item -LiteralPath $script:ConfigFile -Force }
-    if ($state.profile_existed) { Copy-Item -LiteralPath $backupProfile -Destination $profileFile -Force }
-    elseif (Test-Path -LiteralPath $profileFile) { Remove-Item -LiteralPath $profileFile -Force }
     $secretFile = Join-Path $script:ActiveDir 'provider.key'
-    if (Test-Path -LiteralPath $secretFile) { Remove-Item -LiteralPath $secretFile -Force }
+    try {
+        if (Test-Path -LiteralPath $secretFile) { Remove-Item -LiteralPath $secretFile -Force }
+    }
+    catch {
+        Fail 'DPAPI 密钥删除失败；为避免误报，活动状态和其余配置均已保留。请解决文件权限后重试 rollback。'
+    }
+    $profileFile = Join-Path $script:CodexHome ($state.provider_id + '.config.toml')
+    $configLines = @(Remove-ManagedBlock @(Read-ConfigLines $script:ConfigFile) $state.provider_id)
+    Write-AtomicLines $script:ConfigFile $configLines
+    if ($mode -eq 'third-party') {
+        Restore-OfficialDefaults $state
+    }
+    if ($state.profile_existed) {
+        Write-AtomicLines $profileFile @(Read-ConfigLines (Join-Path $script:ActiveDir 'backup\profile.config.toml'))
+    }
+    elseif (Test-Path -LiteralPath $profileFile) {
+        Remove-Item -LiteralPath $profileFile -Force
+    }
     [System.IO.Directory]::CreateDirectory($script:AuditDir) | Out-Null
     $target = Join-Path $script:AuditDir ('state-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $PID)
     Move-Item -LiteralPath $script:ActiveDir -Destination $target
@@ -591,19 +837,29 @@ function Show-Menu {
         Write-Host ''
         Write-Host "Codex Remote Provider Kit（Windows）v$($script:KitVersion)"
         Write-Host '1) 安装第三方 provider    2) 查看状态    3) 完整测试'
-        Write-Host '4) 切换第三方              5) 切换官方    6) 轮换密钥'
-        Write-Host '7) 重启 ChatGPT 应用       8) 完整回滚    0) 退出'
-        switch (Read-Host '请选择') {
-            '1' { Install-Provider }
-            '2' { Show-Status }
-            '3' { Invoke-ProviderTest }
-            '4' { Use-ThirdParty }
-            '5' { Use-Official }
-            '6' { Rotate-Key }
-            '7' { Restart-ChatGptApp }
-            '8' { Rollback-All }
-            '0' { return }
-            default { Write-Warning '无效选项。' }
+        Write-Host '4) 切换第三方              5) 切换官方    6) 重新配置'
+        Write-Host '7) 轮换密钥                8) 重启应用    9) 完整回滚'
+        Write-Host '10) 查看帮助               0) 退出'
+        $choice = Read-Host '请选择'
+        try {
+            switch ($choice) {
+                '1' { Install-Provider }
+                '2' { Show-Status }
+                '3' { Invoke-ProviderTest }
+                '4' { Use-ThirdParty }
+                '5' { Use-Official }
+                '6' { Reconfigure-Provider }
+                '7' { Rotate-Key }
+                '8' { Restart-ChatGptApp }
+                '9' { Rollback-All }
+                '10' { Show-Usage }
+                '0' { return }
+                default { Write-Warning '无效选项。' }
+            }
+        }
+        catch {
+            Write-Warning ('操作失败：' + $_.Exception.Message)
+            Write-Host '已返回主菜单；请修正问题后重试。'
         }
     }
 }
@@ -612,13 +868,16 @@ try {
     switch ($Command) {
         'menu' { Show-Menu }
         'install' { Install-Provider }
+        'reconfigure' { Reconfigure-Provider }
         'status' { Show-Status }
+        'doctor' { Show-Status }
         'test' { Invoke-ProviderTest }
         'official' { Use-Official }
         'third-party' { Use-ThirdParty }
         'rotate-key' { Rotate-Key }
         'restart-app' { Restart-ChatGptApp }
-        'rollback' { Rollback-All }
+        { $_ -in @('rollback', 'uninstall') } { Rollback-All }
+        'update' { Write-Host 'Windows 不在启动器中自动下载更新。请重新运行 README 中受信任的 install-windows.ps1；安装器有下载超时和失败恢复。' }
         { $_ -in @('version', '-V', '--version') } { Write-Output "codex-remote-provider-kit $($script:KitVersion)" }
         'help' { Show-Usage }
     }
