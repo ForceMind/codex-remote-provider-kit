@@ -235,12 +235,16 @@ fi
 
 : > "$mock_log"
 transient_marker="$test_dir/transient-start-failed"
-printf 'y\n' | env "${common_env[@]}" \
+if ! printf 'y\n' | env "${common_env[@]}" \
   MOCK_ACTIVE_UNIT="$third_party_name" \
   MOCK_ENABLED_UNIT="$third_party_name" \
   MOCK_FAIL_START_ONCE_UNIT="$official_name" \
   MOCK_FAIL_START_ONCE_MARKER="$transient_marker" \
-  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1
+  bash "$repo_dir/use-official.sh" > "$test_dir/transient-switch.log" 2>&1; then
+  printf 'transient switch output:\n' >&2
+  sed -n '1,120p' "$test_dir/transient-switch.log" >&2
+  exit 1
+fi
 [[ -e "$transient_marker" ]]
 grep -Fq '正在停止残留 daemon，并重试一次同一模式' \
   "$test_dir/transient-switch.log"
